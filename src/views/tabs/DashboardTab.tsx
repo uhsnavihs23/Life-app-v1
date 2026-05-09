@@ -17,7 +17,7 @@ import {
   BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip,
   AreaChart, Area, PieChart, Pie, Cell,
 } from 'recharts';
-import { TrendingUp, DollarSign, Utensils, Moon, Footprints, Brain, Heart, Droplets, Zap, Loader2 } from 'lucide-react';
+import { TrendingUp, IndianRupee, Utensils, Moon, Footprints, Brain, Heart, Droplets, Zap, Loader2 } from 'lucide-react';
 
 export default function DashboardTab() {
   const { state } = useApp();
@@ -190,7 +190,7 @@ export default function DashboardTab() {
 
       {/* Top Stats Grid */}
       <div className="grid grid-cols-2 gap-3 mb-6">
-        <StatCard icon={DollarSign} label="Spent Today" value={formatINR(stats.expensesToday)} color="#ef4444" sub={`${formatINR(stats.expensesWeek)} this week`} />
+        <StatCard icon={IndianRupee} label="Spent Today" value={formatINR(stats.expensesToday)} color="#ef4444" sub={`${formatINR(stats.expensesWeek)} this week`} />
         <StatCard icon={Utensils} label="Meals Today" value={stats.mealsToday.toString()} color="#f59e0b" sub={`~${stats.caloriesToday} cal`} />
         <StatCard icon={Moon} label="Sleep" value={`${stats.sleepToday}h`} color="#8b5cf6" sub={stats.sleepToday >= 7 ? 'Well rested 😊' : stats.sleepToday > 0 ? 'Could improve 😐' : 'Not logged'} />
         <StatCard icon={Footprints} label="Steps" value={stats.stepsToday.toLocaleString()} color="#10b981" sub={stats.stepsToday >= 10000 ? 'Goal reached! 🎉' : `${Math.max(0, 10000 - stats.stepsToday).toLocaleString()} to goal`} />
@@ -302,7 +302,7 @@ export default function DashboardTab() {
       {/* Expense Breakdown */}
       <div className="card p-4 mb-4">
         <h3 className="font-semibold mb-3 flex items-center gap-2" style={{ color: 'var(--color-text)' }}>
-          <DollarSign className="w-4 h-4 text-red-500" /> Expenses This Week
+          <IndianRupee className="w-4 h-4 text-red-500" /> Expenses This Week
         </h3>
         {expensePieData.length > 0 ? (
           <div className="flex items-center gap-4">

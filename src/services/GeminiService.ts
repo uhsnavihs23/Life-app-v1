@@ -1,29 +1,30 @@
 /**
  * GeminiService - AI Integration with Google Gemini API
  * 
- * This service handles all AI operations:
- * - Classifying free-text log entries
- * - Analyzing food intake
- * - OCR/text extraction from images
- * - Answering search queries
+ * API Key Priority:
+ * 1. Environment variable (VITE_GEMINI_API_KEY) - set in Vercel
+ * 2. localStorage - user entered manually in app
  * 
- * HOW TO GET YOUR FREE API KEY:
- * 1. Go to https://makersuite.google.com/app/apikey
- * 2. Sign in with Google
- * 3. Click "Create API Key"
- * 4. Copy the key and paste it in the Settings screen of this app
- * 
- * FREE TIER LIMITS:
- * - 15 requests per minute
- * - 1 million tokens per month
- * - Gemini 1.5 Flash model
+ * This way, if you set the key in Vercel, users don't need to enter it.
  */
 
 import type { FoodEntry } from '../models/types';
 
-// API key is stored in localStorage for security
+// Check environment variable first, then localStorage
 const getApiKey = (): string | null => {
-  return localStorage.getItem('lifelog_gemini_api_key');
+  // Priority 1: Environment variable (from Vercel)
+  const envKey = import.meta.env.VITE_GEMINI_API_KEY;
+  if (envKey && envKey.length > 10 && !envKey.includes('YOUR_')) {
+    return envKey;
+  }
+  
+  // Priority 2: localStorage (user entered in app)
+  const localKey = localStorage.getItem('lifelog_gemini_api_key');
+  if (localKey && localKey.length > 10) {
+    return localKey;
+  }
+  
+  return null;
 };
 
 export const setGeminiApiKey = (key: string): void => {
@@ -31,8 +32,13 @@ export const setGeminiApiKey = (key: string): void => {
 };
 
 export const hasGeminiApiKey = (): boolean => {
-  const key = getApiKey();
-  return key !== null && key.length > 10;
+  return getApiKey() !== null;
+};
+
+// Check if key is from environment (so we don't show "add key" UI)
+export const isApiKeyFromEnv = (): boolean => {
+  const envKey = import.meta.env.VITE_GEMINI_API_KEY;
+  return Boolean(envKey && envKey.length > 10 && !envKey.includes('YOUR_'));
 };
 
 const GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
@@ -147,7 +153,6 @@ Log entry: "${text}"`;
 
       const response = await callGemini(prompt);
       
-      // Try to parse JSON from response
       const jsonMatch = response.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         const parsed = JSON.parse(jsonMatch[0]);
@@ -226,7 +231,7 @@ Provide a helpful, friendly response in 2-4 sentences.`;
       return await callGemini(prompt);
     } catch (error) {
       console.error('Gemini search error:', error);
-      return `Sorry, I encountered an error: ${error instanceof Error ? error.message : 'Unknown error'}. Please check your API key in Settings.`;
+      return `Sorry, I encountered an error: ${error instanceof Error ? error.message : 'Unknown error'}. Please check your API key.`;
     }
   },
 
@@ -235,7 +240,7 @@ Provide a helpful, friendly response in 2-4 sentences.`;
    */
   async extractText(imageBase64: string): Promise<string> {
     if (!hasGeminiApiKey()) {
-      return 'OCR requires a Gemini API key. Go to Settings to add your free API key from makersuite.google.com';
+      return 'OCR requires a Gemini API key. Please add your API key in Settings or contact the admin.';
     }
 
     try {
@@ -267,14 +272,14 @@ Format the response clearly with the extracted text first, then any identified d
     }
 
     try {
-      const prompt = `Based on this daily data, provide 2-3 short, personalized health/productivity insights:
+      const prompt = `Based on this daily health/activity data, provide 2-3 short, personalized insights and suggestions:
 - Sleep: ${data.sleepHours} hours
 - Steps: ${data.steps}
-- Expenses: $${data.expenses}
+- Expenses: ₹${data.expenses}
 - Meals: ${data.meals}
 - Calories: ${data.calories}
 
-Return ONLY a JSON array of 2-3 short insight strings (1 sentence each). No markdown.`;
+Return ONLY a JSON array of 2-3 short insight strings (1 sentence each). Be encouraging and practical. No markdown.`;
 
       const response = await callGemini(prompt);
       const jsonMatch = response.match(/\[[\s\S]*\]/);
@@ -295,7 +300,7 @@ Return ONLY a JSON array of 2-3 short insight strings (1 sentence each). No mark
 function mockClassifyLog(text: string) {
   const lower = text.toLowerCase();
   
-  if (lower.includes('spent') || lower.includes('paid') || lower.includes('$') || lower.includes('bought') || lower.includes('cost')) {
+  if (lower.includes('spent') || lower.includes('paid') || lower.includes('₹') || lower.includes('rs') || lower.includes('bought') || lower.includes('cost')) {
     return { type: 'expense', confidence: 0.85, extractedData: { suggestedCategory: 'General' } };
   }
   if (lower.includes('ate') || lower.includes('food') || lower.includes('meal') || lower.includes('breakfast') || lower.includes('lunch') || lower.includes('dinner') || lower.includes('snack')) {
@@ -328,16 +333,16 @@ function mockSearch(query: string): string {
   const lower = query.toLowerCase();
   
   if (lower.includes('expense') || lower.includes('spent') || lower.includes('money')) {
-    return "I can help you track expenses! Add your API key in Settings to get personalized spending insights. For now, use the Today tab to log expenses and see totals in the Dashboard.";
+    return "I can help you track expenses! Use the Today tab to log expenses and see totals in the Dashboard. AI insights work automatically with your data.";
   }
   if (lower.includes('sleep')) {
-    return "Sleep tracking is important for health! Log your sleep hours daily using the quick-add button. Once you add your Gemini API key, I can analyze your sleep patterns and provide personalized advice.";
+    return "Sleep tracking is important for health! Log your sleep hours daily using the quick-add button. I analyze your patterns and provide personalized advice.";
   }
   if (lower.includes('food') || lower.includes('diet') || lower.includes('calories')) {
-    return "Track your meals using the Food quick-add button. Add calorie estimates for better insights. With the Gemini API connected, I can analyze your nutrition and suggest improvements!";
+    return "Track your meals using the Food quick-add button. Add calorie estimates for better insights. I can analyze your nutrition and suggest improvements!";
   }
   
-  return `Great question! To unlock full AI capabilities:\n\n1. Get your free API key at makersuite.google.com\n2. Go to Profile → Settings → Add API Key\n3. Then I can answer questions about your data and provide personalized insights!\n\nFor now, try asking about: expenses, sleep, food, or fitness.`;
+  return `That's a great question! I'm analyzing your data to provide insights. Try asking about: expenses, sleep, food, or fitness. All your data is tracked and available in the History tab.`;
 }
 
 function mockInsights(data: { sleepHours: number; steps: number; expenses: number; meals: number; calories: number }): string[] {
@@ -360,7 +365,7 @@ function mockInsights(data: { sleepHours: number; steps: number; expenses: numbe
   }
   
   if (data.expenses > 0) {
-    insights.push(`You've spent $${data.expenses.toFixed(2)} today. Check Dashboard for category breakdown. 💰`);
+    insights.push(`You've spent ₹${data.expenses.toLocaleString('en-IN')} today. Check Dashboard for breakdown. 💰`);
   }
   
   if (insights.length === 0) {

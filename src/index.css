@@ -39,18 +39,30 @@ body {
   color: var(--color-text);
   overscroll-behavior: none;
   /* Support for Dynamic Island / notch on iPhone */
-  padding-top: env(safe-area-inset-top);
   padding-left: env(safe-area-inset-left);
   padding-right: env(safe-area-inset-right);
 }
 
-/* Safe area for content */
+/* Safe area for content - reduced padding */
 .safe-area-top {
-  padding-top: max(env(safe-area-inset-top), 20px);
+  padding-top: env(safe-area-inset-top, 12px);
 }
 
 .safe-area-bottom {
-  padding-bottom: max(env(safe-area-inset-bottom), 20px);
+  padding-bottom: env(safe-area-inset-bottom, 12px);
+}
+
+/* Fix for input icons overlapping text */
+.input-with-icon {
+  padding-left: 44px !important;
+}
+
+.input-icon {
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
 }
 
 input, textarea, select {

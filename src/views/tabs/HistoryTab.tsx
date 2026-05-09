@@ -1,20 +1,20 @@
 /**
  * HistoryTab - View all past records and activities
  * 
- * Shows:
- * - Complete activity timeline
- * - Filter by date
+ * Features:
+ * - Calendar date picker
  * - Filter by category
- * - See what you did on any day
+ * - Search through records
+ * - View by day or all-time
  */
 
 import { useState, useMemo } from 'react';
 import { useApp } from '../../store/AppContext';
 import { TAG_CONFIG, formatDate, formatTime, formatINR } from '../../models/types';
-import { format, subDays, startOfDay, endOfDay, isWithinInterval } from 'date-fns';
+import { format, subDays, startOfDay, endOfDay, isWithinInterval, parseISO } from 'date-fns';
 import {
   Calendar, ChevronLeft, ChevronRight,
-  Clock, Search, X
+  Clock, Search, X, CalendarDays
 } from 'lucide-react';
 
 type FilterCategory = 'all' | 'expense' | 'food' | 'sleep' | 'exercise' | 'general' | 'list' | 'health' | 'reminder' | 'file';
@@ -25,6 +25,7 @@ export default function HistoryTab() {
   const [filterCategory, setFilterCategory] = useState<FilterCategory>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState<'day' | 'all'>('day');
+  const [showCalendar, setShowCalendar] = useState(false);
 
   // Get all activities for the selected date
   const dayActivities = useMemo(() => {
@@ -76,7 +77,6 @@ export default function HistoryTab() {
     const food = state.foodEntries.filter(f => f.createdAt.startsWith(dateStr));
     const sleep = state.sleepEntries.filter(s => s.date === dateStr);
     const activity = state.activities.filter(a => a.date === dateStr);
-    const logs = state.dailyLogs.filter(l => l.createdAt.startsWith(dateStr));
 
     return {
       totalExpenses: expenses.reduce((sum, e) => sum + e.amount, 0),
@@ -84,7 +84,6 @@ export default function HistoryTab() {
       meals: food.length,
       sleepHours: sleep[0]?.hours || 0,
       steps: activity.reduce((sum, a) => sum + a.steps, 0),
-      entries: logs.length,
       expenseCount: expenses.length,
     };
   }, [state, selectedDate]);
@@ -94,6 +93,14 @@ export default function HistoryTab() {
     const next = new Date(selectedDate);
     next.setDate(next.getDate() + 1);
     if (next <= new Date()) setSelectedDate(next);
+  };
+
+  const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newDate = parseISO(e.target.value);
+    if (newDate <= new Date()) {
+      setSelectedDate(newDate);
+      setShowCalendar(false);
+    }
   };
 
   const isToday = format(selectedDate, 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd');
@@ -143,14 +150,25 @@ export default function HistoryTab() {
             <button onClick={goToPrevDay} className="p-2 rounded-xl" style={{ background: 'var(--color-surface-alt)' }}>
               <ChevronLeft className="w-5 h-5" style={{ color: 'var(--color-text)' }} />
             </button>
-            <div className="text-center">
-              <p className="font-bold text-lg" style={{ color: 'var(--color-text)' }}>
-                {isToday ? 'Today' : format(selectedDate, 'EEEE')}
-              </p>
-              <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
-                {format(selectedDate, 'MMMM d, yyyy')}
-              </p>
-            </div>
+            
+            {/* Clickable date with calendar */}
+            <button 
+              className="text-center flex-1 mx-2 p-2 rounded-xl transition-all hover:bg-gray-100 dark:hover:bg-gray-800"
+              onClick={() => setShowCalendar(!showCalendar)}
+            >
+              <div className="flex items-center justify-center gap-2">
+                <CalendarDays className="w-4 h-4" style={{ color: 'var(--color-primary)' }} />
+                <div>
+                  <p className="font-bold text-lg" style={{ color: 'var(--color-text)' }}>
+                    {isToday ? 'Today' : format(selectedDate, 'EEEE')}
+                  </p>
+                  <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
+                    {format(selectedDate, 'd MMMM yyyy')}
+                  </p>
+                </div>
+              </div>
+            </button>
+            
             <button 
               onClick={goToNextDay} 
               className="p-2 rounded-xl" 
@@ -161,33 +179,58 @@ export default function HistoryTab() {
             </button>
           </div>
 
+          {/* Calendar Picker */}
+          {showCalendar && (
+            <div className="mt-3 p-3 rounded-xl" style={{ background: 'var(--color-surface-alt)' }}>
+              <input
+                type="date"
+                className="w-full p-3 rounded-xl text-center font-medium"
+                style={{ 
+                  background: 'var(--color-surface)', 
+                  color: 'var(--color-text)',
+                  border: '1px solid var(--color-border)'
+                }}
+                value={format(selectedDate, 'yyyy-MM-dd')}
+                onChange={handleDateChange}
+                max={format(new Date(), 'yyyy-MM-dd')}
+              />
+              <button 
+                className="w-full mt-2 py-2 text-sm font-medium rounded-xl"
+                style={{ color: 'var(--color-primary)' }}
+                onClick={() => { setSelectedDate(new Date()); setShowCalendar(false); }}
+              >
+                Go to Today
+              </button>
+            </div>
+          )}
+
           {/* Day Summary */}
           <div className="grid grid-cols-4 gap-2 mt-4">
             <div className="text-center p-2 rounded-lg" style={{ background: 'var(--color-surface-alt)' }}>
               <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>Spent</p>
-              <p className="font-bold text-red-500">{formatINR(daySummary.totalExpenses)}</p>
+              <p className="font-bold text-red-500 text-sm">{formatINR(daySummary.totalExpenses)}</p>
             </div>
             <div className="text-center p-2 rounded-lg" style={{ background: 'var(--color-surface-alt)' }}>
               <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>Calories</p>
-              <p className="font-bold text-orange-500">{daySummary.totalCalories || '-'}</p>
+              <p className="font-bold text-orange-500 text-sm">{daySummary.totalCalories || '-'}</p>
             </div>
             <div className="text-center p-2 rounded-lg" style={{ background: 'var(--color-surface-alt)' }}>
               <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>Sleep</p>
-              <p className="font-bold text-purple-500">{daySummary.sleepHours || '-'}h</p>
+              <p className="font-bold text-purple-500 text-sm">{daySummary.sleepHours || '-'}h</p>
             </div>
             <div className="text-center p-2 rounded-lg" style={{ background: 'var(--color-surface-alt)' }}>
               <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>Steps</p>
-              <p className="font-bold text-green-500">{daySummary.steps.toLocaleString() || '-'}</p>
+              <p className="font-bold text-green-500 text-sm">{daySummary.steps.toLocaleString() || '-'}</p>
             </div>
           </div>
         </div>
       )}
 
-      {/* Search */}
+      {/* Search - Fixed icon overlap */}
       <div className="relative mb-4">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color: 'var(--color-text-tertiary)' }} />
+        <Search className="input-icon w-4 h-4" style={{ color: 'var(--color-text-tertiary)' }} />
         <input
-          className="ios-input pl-10 pr-10"
+          className="ios-input input-with-icon pr-10"
           placeholder="Search activities..."
           value={searchQuery}
           onChange={e => setSearchQuery(e.target.value)}
@@ -249,7 +292,7 @@ export default function HistoryTab() {
         ) : (
           Object.entries(groupedByDate).map(([date, items]) => (
             <div key={date} className="mb-6">
-              <h3 className="text-sm font-semibold mb-2 sticky top-0 py-1" 
+              <h3 className="text-sm font-semibold mb-2 sticky top-0 py-1 z-10" 
                 style={{ color: 'var(--color-text-secondary)', background: 'var(--color-bg)' }}>
                 {formatDate(date)}
               </h3>
@@ -287,7 +330,7 @@ function ActivityCard({ item, showDate = true }: { item: any; showDate?: boolean
         <p className="text-sm mt-0.5" style={{ color: 'var(--color-text-secondary)' }}>
           {item.details}
         </p>
-        <div className="flex items-center gap-2 mt-1">
+        <div className="flex items-center gap-2 mt-1 flex-wrap">
           <span className="text-xs px-2 py-0.5 rounded-full" 
             style={{ background: config.bg, color: config.color }}>
             {config.label}

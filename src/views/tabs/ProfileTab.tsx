@@ -1,38 +1,46 @@
 /**
  * ProfileTab - User profile and settings
  * 
- * Updated with:
- * - Safe area for Dynamic Island
- * - Better API key management
- * - Environment variable support for Vercel
+ * Features:
+ * - Profile image upload
+ * - API key status
+ * - Settings
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useApp } from '../../store/AppContext';
-import { setGeminiApiKey, hasGeminiApiKey } from '../../services/GeminiService';
+import { setGeminiApiKey, hasGeminiApiKey, isApiKeyFromEnv } from '../../services/GeminiService';
 import { isSupabaseConfigured } from '../../services/SupabaseService';
 import {
   Moon, Sun, Bell, Key, LogOut,
-  ChevronRight, Shield, Info, Trash2, Check, ExternalLink, Sparkles, Database
+  ChevronRight, Shield, Info, Trash2, Check, ExternalLink, Sparkles, Database, Camera
 } from 'lucide-react';
 
 export default function ProfileTab() {
   const { state, dispatch } = useApp();
   const user = state.user;
+  const fileInputRef = useRef<HTMLInputElement>(null);
   
   const [editMode, setEditMode] = useState(false);
   const [editName, setEditName] = useState(user?.displayName || '');
   const [editEmail, setEditEmail] = useState(user?.email || '');
+  const [profileImage, setProfileImage] = useState<string | null>(null);
   
   const [showApiKeyInput, setShowApiKeyInput] = useState(false);
   const [apiKey, setApiKey] = useState('');
   const [hasApiKey, setHasApiKey] = useState(false);
+  const [apiKeyFromEnv, setApiKeyFromEnv] = useState(false);
   const [apiKeySaved, setApiKeySaved] = useState(false);
   const [supabaseConfigured, setSupabaseConfigured] = useState(false);
 
   useEffect(() => {
     setHasApiKey(hasGeminiApiKey());
+    setApiKeyFromEnv(isApiKeyFromEnv());
     setSupabaseConfigured(isSupabaseConfigured());
+    
+    // Load saved profile image
+    const savedImage = localStorage.getItem('lifelog_profile_image');
+    if (savedImage) setProfileImage(savedImage);
   }, []);
 
   const handleSaveProfile = () => {
@@ -48,6 +56,19 @@ export default function ProfileTab() {
       setShowApiKeyInput(false);
       setApiKey('');
       setTimeout(() => setApiKeySaved(false), 3000);
+    }
+  };
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const imageData = event.target?.result as string;
+        setProfileImage(imageData);
+        localStorage.setItem('lifelog_profile_image', imageData);
+      };
+      reader.readAsDataURL(file);
     }
   };
 
@@ -70,13 +91,36 @@ export default function ProfileTab() {
         <h1 className="text-3xl font-bold" style={{ color: 'var(--color-text)' }}>Profile</h1>
       </div>
 
-      {/* User Card */}
+      {/* User Card with Profile Image */}
       <div className="card p-6 mb-6 text-center">
-        <div className="w-20 h-20 rounded-full mx-auto mb-3 flex items-center justify-center text-3xl"
-          style={{ background: 'linear-gradient(135deg, #6366f1, #8b5cf6)' }}>
-          <span className="text-white font-bold">
-            {(user?.displayName || 'U').charAt(0).toUpperCase()}
-          </span>
+        {/* Profile Image */}
+        <div className="relative inline-block mb-3">
+          <div 
+            className="w-24 h-24 rounded-full mx-auto flex items-center justify-center text-4xl overflow-hidden"
+            style={{ background: profileImage ? 'transparent' : 'linear-gradient(135deg, #6366f1, #8b5cf6)' }}
+          >
+            {profileImage ? (
+              <img src={profileImage} alt="Profile" className="w-full h-full object-cover" />
+            ) : (
+              <span className="text-white font-bold">
+                {(user?.displayName || 'U').charAt(0).toUpperCase()}
+              </span>
+            )}
+          </div>
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="absolute bottom-0 right-0 w-8 h-8 rounded-full flex items-center justify-center shadow-lg"
+            style={{ background: 'var(--color-primary)' }}
+          >
+            <Camera className="w-4 h-4 text-white" />
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={handleImageUpload}
+          />
         </div>
         
         {editMode ? (
@@ -145,7 +189,7 @@ export default function ProfileTab() {
         </div>
       )}
 
-      {/* Gemini API Key Setup */}
+      {/* Gemini API Status */}
       <div className="card p-4 mb-4" style={{ background: hasApiKey ? 'rgba(16,185,129,0.05)' : 'rgba(99,102,241,0.05)' }}>
         <div className="flex items-start gap-3">
           <div className="w-10 h-10 rounded-xl flex items-center justify-center" 
@@ -154,12 +198,14 @@ export default function ProfileTab() {
           </div>
           <div className="flex-1">
             <h3 className="font-semibold" style={{ color: 'var(--color-text)' }}>
-              {hasApiKey ? 'AI Features Enabled ✨' : 'Enable AI Features'}
+              {hasApiKey ? 'AI Features Enabled ✨' : 'AI Features'}
             </h3>
             <p className="text-sm mt-1" style={{ color: 'var(--color-text-secondary)' }}>
               {hasApiKey 
-                ? 'Gemini API connected. Enjoy smart insights, OCR, and AI search!' 
-                : 'Add your free Gemini API key for AI-powered features.'}
+                ? apiKeyFromEnv 
+                  ? 'Gemini API configured. Enjoy AI insights, OCR, and smart search!'
+                  : 'Gemini API connected. Enjoy smart insights, OCR, and AI search!' 
+                : 'AI features require a Gemini API key.'}
             </p>
             
             {!hasApiKey && !showApiKeyInput && (
@@ -199,13 +245,10 @@ export default function ProfileTab() {
                     Save Key
                   </button>
                 </div>
-                <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
-                  🔒 Your key is stored locally on your device. Never shared.
-                </p>
               </div>
             )}
 
-            {hasApiKey && (
+            {hasApiKey && !apiKeyFromEnv && (
               <button 
                 className="text-sm mt-2"
                 style={{ color: 'var(--color-primary)' }}
@@ -258,12 +301,12 @@ export default function ProfileTab() {
         <SettingRow
           icon={Database}
           label="Data Storage"
-          subtitle={supabaseConfigured ? 'Cloud sync enabled' : 'Local only'}
+          subtitle={supabaseConfigured ? 'Cloud sync enabled' : 'Local storage'}
           color="#06b6d4"
           action={
             supabaseConfigured 
               ? <Check className="w-5 h-5 text-emerald-500" />
-              : <ChevronRight className="w-5 h-5" style={{ color: 'var(--color-text-tertiary)' }} />
+              : <span className="text-xs px-2 py-1 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300">Local</span>
           }
         />
 
@@ -277,19 +320,6 @@ export default function ProfileTab() {
             <ChevronRight className="w-5 h-5" style={{ color: 'var(--color-text-tertiary)' }} />
           }
         />
-      </div>
-
-      {/* Install PWA Banner */}
-      <div className="card p-4 mt-6">
-        <h3 className="font-semibold mb-2" style={{ color: 'var(--color-text)' }}>📱 Install as App</h3>
-        <p className="text-sm mb-3" style={{ color: 'var(--color-text-secondary)' }}>
-          On iPhone: Tap Share → "Add to Home Screen" for the best experience.
-        </p>
-        <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
-          <span>✓ Works offline</span>
-          <span>✓ No App Store</span>
-          <span>✓ Always free</span>
-        </div>
       </div>
 
       {/* Danger Zone */}

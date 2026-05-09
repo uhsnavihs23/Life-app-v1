@@ -13,7 +13,7 @@ import { useApp } from '../../store/AppContext';
 import { TAG_CONFIG, formatINR, formatTime, type EntryTag } from '../../models/types';
 import { format } from 'date-fns';
 import {
-  Plus, DollarSign, Utensils, Moon, Footprints,
+  Plus, IndianRupee, Utensils, Moon, Footprints,
   Send, ChevronDown, ChevronUp, X, Film, Heart, Droplets
 } from 'lucide-react';
 
@@ -193,7 +193,7 @@ export default function TodayTab() {
       {/* Quick Add Buttons - 2 rows */}
       <div className="grid grid-cols-4 gap-2 mb-2">
         {([
-          { mode: 'expense' as const, icon: DollarSign, label: 'Expense', color: '#ef4444' },
+          { mode: 'expense' as const, icon: IndianRupee, label: 'Expense', color: '#ef4444' },
           { mode: 'food' as const, icon: Utensils, label: 'Food', color: '#f59e0b' },
           { mode: 'sleep' as const, icon: Moon, label: 'Sleep', color: '#8b5cf6' },
           { mode: 'activity' as const, icon: Footprints, label: 'Steps', color: '#10b981' },
