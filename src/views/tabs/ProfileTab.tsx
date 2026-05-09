@@ -1,20 +1,19 @@
 /**
  * ProfileTab - User profile and settings
  * 
- * Shows:
- * - User profile info
- * - Gemini API key configuration
- * - Dark mode toggle
- * - App info
- * - Logout
+ * Updated with:
+ * - Safe area for Dynamic Island
+ * - Better API key management
+ * - Environment variable support for Vercel
  */
 
 import { useState, useEffect } from 'react';
 import { useApp } from '../../store/AppContext';
 import { setGeminiApiKey, hasGeminiApiKey } from '../../services/GeminiService';
+import { isSupabaseConfigured } from '../../services/SupabaseService';
 import {
-  Moon, Sun, Bell, Key, Cloud, LogOut,
-  ChevronRight, Shield, Info, Trash2, Check, ExternalLink, Sparkles
+  Moon, Sun, Bell, Key, LogOut,
+  ChevronRight, Shield, Info, Trash2, Check, ExternalLink, Sparkles, Database
 } from 'lucide-react';
 
 export default function ProfileTab() {
@@ -29,9 +28,11 @@ export default function ProfileTab() {
   const [apiKey, setApiKey] = useState('');
   const [hasApiKey, setHasApiKey] = useState(false);
   const [apiKeySaved, setApiKeySaved] = useState(false);
+  const [supabaseConfigured, setSupabaseConfigured] = useState(false);
 
   useEffect(() => {
     setHasApiKey(hasGeminiApiKey());
+    setSupabaseConfigured(isSupabaseConfigured());
   }, []);
 
   const handleSaveProfile = () => {
@@ -64,7 +65,7 @@ export default function ProfileTab() {
   };
 
   return (
-    <div className="pb-4 fade-in">
+    <div className="pb-4 fade-in safe-area-top">
       <div className="mb-6">
         <h1 className="text-3xl font-bold" style={{ color: 'var(--color-text)' }}>Profile</h1>
       </div>
@@ -109,24 +110,30 @@ export default function ProfileTab() {
       </div>
 
       {/* Stats Summary */}
-      <div className="grid grid-cols-3 gap-2 mb-6">
-        <div className="card p-3 text-center">
-          <p className="text-2xl font-bold" style={{ color: 'var(--color-primary)' }}>
+      <div className="grid grid-cols-4 gap-2 mb-6">
+        <div className="card p-2 text-center">
+          <p className="text-xl font-bold" style={{ color: 'var(--color-primary)' }}>
             {state.dailyLogs.length}
           </p>
-          <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>Entries</p>
+          <p className="text-[10px]" style={{ color: 'var(--color-text-tertiary)' }}>Logs</p>
         </div>
-        <div className="card p-3 text-center">
-          <p className="text-2xl font-bold text-red-500">
+        <div className="card p-2 text-center">
+          <p className="text-xl font-bold text-red-500">
             {state.expenses.length}
           </p>
-          <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>Expenses</p>
+          <p className="text-[10px]" style={{ color: 'var(--color-text-tertiary)' }}>Expenses</p>
         </div>
-        <div className="card p-3 text-center">
-          <p className="text-2xl font-bold text-emerald-500">
-            {state.files.length}
+        <div className="card p-2 text-center">
+          <p className="text-xl font-bold text-amber-500">
+            {state.listItems.length}
           </p>
-          <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>Files</p>
+          <p className="text-[10px]" style={{ color: 'var(--color-text-tertiary)' }}>Lists</p>
+        </div>
+        <div className="card p-2 text-center">
+          <p className="text-xl font-bold text-emerald-500">
+            {state.activityTimeline.length}
+          </p>
+          <p className="text-[10px]" style={{ color: 'var(--color-text-tertiary)' }}>Activities</p>
         </div>
       </div>
 
@@ -138,8 +145,8 @@ export default function ProfileTab() {
         </div>
       )}
 
-      {/* Gemini API Key Setup - Important! */}
-      <div className="card p-4 mb-6" style={{ background: hasApiKey ? 'rgba(16,185,129,0.05)' : 'rgba(99,102,241,0.05)' }}>
+      {/* Gemini API Key Setup */}
+      <div className="card p-4 mb-4" style={{ background: hasApiKey ? 'rgba(16,185,129,0.05)' : 'rgba(99,102,241,0.05)' }}>
         <div className="flex items-start gap-3">
           <div className="w-10 h-10 rounded-xl flex items-center justify-center" 
             style={{ background: hasApiKey ? 'rgba(16,185,129,0.15)' : 'rgba(99,102,241,0.15)' }}>
@@ -151,12 +158,12 @@ export default function ProfileTab() {
             </h3>
             <p className="text-sm mt-1" style={{ color: 'var(--color-text-secondary)' }}>
               {hasApiKey 
-                ? 'Gemini API is connected. Enjoy smart log classification, OCR, and AI search!' 
-                : 'Add your free Gemini API key to unlock AI-powered features.'}
+                ? 'Gemini API connected. Enjoy smart insights, OCR, and AI search!' 
+                : 'Add your free Gemini API key for AI-powered features.'}
             </p>
             
             {!hasApiKey && !showApiKeyInput && (
-              <div className="mt-3 flex gap-2">
+              <div className="mt-3 flex gap-2 flex-wrap">
                 <button 
                   className="ios-btn ios-btn-primary text-sm py-2"
                   onClick={() => setShowApiKeyInput(true)}
@@ -179,7 +186,7 @@ export default function ProfileTab() {
                 <input
                   type="password"
                   className="ios-input text-sm"
-                  placeholder="Paste your Gemini API key here..."
+                  placeholder="Paste your Gemini API key..."
                   value={apiKey}
                   onChange={e => setApiKey(e.target.value)}
                   autoFocus
@@ -193,7 +200,7 @@ export default function ProfileTab() {
                   </button>
                 </div>
                 <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
-                  Your key is stored locally on your device only. Never shared.
+                  🔒 Your key is stored locally on your device. Never shared.
                 </p>
               </div>
             )}
@@ -227,7 +234,6 @@ export default function ProfileTab() {
                 background: state.darkMode ? 'var(--color-primary)' : 'var(--color-border)',
               }}
               onClick={() => dispatch({ type: 'TOGGLE_DARK_MODE' })}
-              aria-label="Toggle dark mode"
             >
               <div className="absolute w-5 h-5 rounded-full bg-white top-1 transition-all"
                 style={{ left: state.darkMode ? 26 : 4 }} />
@@ -248,14 +254,16 @@ export default function ProfileTab() {
           }
         />
 
-        {/* Cloud Sync */}
+        {/* Data Storage */}
         <SettingRow
-          icon={Cloud}
-          label="Data Backup"
-          subtitle="Stored locally on device"
+          icon={Database}
+          label="Data Storage"
+          subtitle={supabaseConfigured ? 'Cloud sync enabled' : 'Local only'}
           color="#06b6d4"
           action={
-            <ChevronRight className="w-5 h-5" style={{ color: 'var(--color-text-tertiary)' }} />
+            supabaseConfigured 
+              ? <Check className="w-5 h-5 text-emerald-500" />
+              : <ChevronRight className="w-5 h-5" style={{ color: 'var(--color-text-tertiary)' }} />
           }
         />
 
@@ -263,7 +271,7 @@ export default function ProfileTab() {
         <SettingRow
           icon={Shield}
           label="Privacy"
-          subtitle="Your data stays on your device"
+          subtitle="Your data stays private"
           color="#10b981"
           action={
             <ChevronRight className="w-5 h-5" style={{ color: 'var(--color-text-tertiary)' }} />
@@ -275,11 +283,13 @@ export default function ProfileTab() {
       <div className="card p-4 mt-6">
         <h3 className="font-semibold mb-2" style={{ color: 'var(--color-text)' }}>📱 Install as App</h3>
         <p className="text-sm mb-3" style={{ color: 'var(--color-text-secondary)' }}>
-          On iPhone: Tap the Share button in Safari, then "Add to Home Screen" for an app-like experience.
+          On iPhone: Tap Share → "Add to Home Screen" for the best experience.
         </p>
-        <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
-          Works offline • No App Store needed • Always free
-        </p>
+        <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
+          <span>✓ Works offline</span>
+          <span>✓ No App Store</span>
+          <span>✓ Always free</span>
+        </div>
       </div>
 
       {/* Danger Zone */}
@@ -303,10 +313,10 @@ export default function ProfileTab() {
       <div className="mt-6 text-center">
         <div className="flex items-center justify-center gap-1 mb-1" style={{ color: 'var(--color-text-tertiary)' }}>
           <Info className="w-3 h-3" />
-          <span className="text-xs">LifeLog AI v1.0 (PWA)</span>
+          <span className="text-xs">LifeLog AI v1.0</span>
         </div>
         <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
-          Built with ❤️ • Free Forever
+          Made with ❤️ • Free Forever
         </p>
       </div>
     </div>

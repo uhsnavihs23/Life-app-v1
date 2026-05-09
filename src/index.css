@@ -38,6 +38,19 @@ body {
   background-color: var(--color-bg);
   color: var(--color-text);
   overscroll-behavior: none;
+  /* Support for Dynamic Island / notch on iPhone */
+  padding-top: env(safe-area-inset-top);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
+/* Safe area for content */
+.safe-area-top {
+  padding-top: max(env(safe-area-inset-top), 20px);
+}
+
+.safe-area-bottom {
+  padding-bottom: max(env(safe-area-inset-bottom), 20px);
 }
 
 input, textarea, select {

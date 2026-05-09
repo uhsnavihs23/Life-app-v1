@@ -1,28 +1,31 @@
 /**
  * DashboardTab - Life insights at a glance
  * 
- * Shows aggregated stats and charts for:
- * - Expenses (today & this week)
- * - Food/meals summary
- * - Sleep hours with chart
- * - Steps/fitness
- * 
- * Placeholder sections for AI insights are included.
+ * Updated with:
+ * - INR currency (₹)
+ * - Deep health insights
+ * - AI-powered suggestions
+ * - Safe area for Dynamic Island
  */
 
-import { useMemo } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { useApp } from '../../store/AppContext';
+import { formatINR } from '../../models/types';
+import { GeminiService, hasGeminiApiKey } from '../../services/GeminiService';
 import { format, subDays, startOfWeek, isAfter } from 'date-fns';
 import {
   BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip,
   AreaChart, Area, PieChart, Pie, Cell,
 } from 'recharts';
-import { TrendingUp, DollarSign, Utensils, Moon, Footprints, Brain } from 'lucide-react';
+import { TrendingUp, DollarSign, Utensils, Moon, Footprints, Brain, Heart, Droplets, Zap, Loader2 } from 'lucide-react';
 
 export default function DashboardTab() {
   const { state } = useApp();
   const today = new Date().toISOString().split('T')[0];
   const weekStart = startOfWeek(new Date());
+  
+  const [aiInsights, setAiInsights] = useState<string[]>([]);
+  const [loadingInsights, setLoadingInsights] = useState(false);
 
   // Calculate stats
   const stats = useMemo(() => {
@@ -31,17 +34,49 @@ export default function DashboardTab() {
     const foodToday = state.foodEntries.filter(f => f.createdAt.startsWith(today));
     const sleepToday = state.sleepEntries.filter(s => s.date === today);
     const actToday = state.activities.filter(a => a.date === today);
+    const healthToday = state.healthMetrics.filter(h => h.date === today);
 
     return {
       expensesToday: expToday.reduce((s, e) => s + e.amount, 0),
       expensesWeek: expWeek.reduce((s, e) => s + e.amount, 0),
       mealsToday: foodToday.length,
       caloriesToday: foodToday.reduce((s, f) => s + (f.calories || 0), 0),
+      proteinToday: foodToday.reduce((s, f) => s + (f.protein || 0), 0),
+      carbsToday: foodToday.reduce((s, f) => s + (f.carbs || 0), 0),
+      fatToday: foodToday.reduce((s, f) => s + (f.fat || 0), 0),
       sleepToday: sleepToday.length > 0 ? sleepToday[0].hours : 0,
+      sleepQuality: sleepToday.length > 0 ? sleepToday[0].quality : null,
       stepsToday: actToday.reduce((s, a) => s + a.steps, 0),
       entriesTotal: state.dailyLogs.length,
+      mood: healthToday.length > 0 ? healthToday[0].mood : null,
+      energy: healthToday.length > 0 ? healthToday[0].energyLevel : null,
+      water: healthToday.length > 0 ? healthToday[0].waterIntake : 0,
     };
   }, [state, today, weekStart]);
+
+  // Load AI insights
+  useEffect(() => {
+    async function loadInsights() {
+      if (!hasGeminiApiKey()) return;
+      
+      setLoadingInsights(true);
+      try {
+        const insights = await GeminiService.generateInsights({
+          sleepHours: stats.sleepToday,
+          steps: stats.stepsToday,
+          expenses: stats.expensesToday,
+          meals: stats.mealsToday,
+          calories: stats.caloriesToday,
+        });
+        setAiInsights(insights);
+      } catch (error) {
+        console.error('Failed to load insights:', error);
+      }
+      setLoadingInsights(false);
+    }
+    
+    loadInsights();
+  }, [stats]);
 
   // Sleep data for chart (last 7 days)
   const sleepChartData = useMemo(() => {
@@ -84,8 +119,68 @@ export default function DashboardTab() {
 
   const PIE_COLORS = ['#6366f1', '#ef4444', '#f59e0b', '#10b981', '#8b5cf6', '#ec4899', '#06b6d4', '#64748b'];
 
+  // Generate local insights if no API key
+  const localInsights = useMemo(() => {
+    const insights: string[] = [];
+    
+    if (stats.sleepToday > 0) {
+      if (stats.sleepToday >= 7 && stats.sleepToday <= 9) {
+        insights.push(`✅ Great sleep! ${stats.sleepToday}h is perfect for recovery and focus.`);
+      } else if (stats.sleepToday < 6) {
+        insights.push(`⚠️ Only ${stats.sleepToday}h sleep. Try to get 7-9 hours tonight for better health.`);
+      } else if (stats.sleepToday > 9) {
+        insights.push(`💤 ${stats.sleepToday}h sleep is above average. Check if you're oversleeping.`);
+      }
+    }
+
+    if (stats.stepsToday > 0) {
+      if (stats.stepsToday >= 10000) {
+        insights.push(`🎉 Amazing! ${stats.stepsToday.toLocaleString()} steps - you've hit your daily goal!`);
+      } else if (stats.stepsToday >= 7000) {
+        insights.push(`👍 Good progress! ${stats.stepsToday.toLocaleString()} steps. ${(10000 - stats.stepsToday).toLocaleString()} more for 10k!`);
+      } else if (stats.stepsToday > 0) {
+        insights.push(`🚶 ${stats.stepsToday.toLocaleString()} steps so far. Try a short walk to boost your count!`);
+      }
+    }
+
+    if (stats.mealsToday > 0) {
+      if (stats.caloriesToday > 0) {
+        if (stats.caloriesToday < 1200) {
+          insights.push(`🍎 ${stats.caloriesToday} cal logged - might be low. Ensure you're eating enough.`);
+        } else if (stats.caloriesToday > 2500) {
+          insights.push(`🍔 ${stats.caloriesToday} cal today - consider balancing with more activity.`);
+        } else {
+          insights.push(`🥗 ${stats.caloriesToday} cal across ${stats.mealsToday} meals - looking balanced!`);
+        }
+      } else {
+        insights.push(`📝 ${stats.mealsToday} meals logged. Add calories for better nutrition tracking!`);
+      }
+    }
+
+    if (stats.water && stats.water > 0) {
+      if (stats.water >= 8) {
+        insights.push(`💧 Great hydration! ${stats.water} glasses of water today.`);
+      } else {
+        insights.push(`💧 ${stats.water} glasses so far. Aim for 8+ for optimal hydration.`);
+      }
+    }
+
+    if (stats.expensesToday > 0) {
+      insights.push(`💰 Spent ${formatINR(stats.expensesToday)} today (${formatINR(stats.expensesWeek)} this week).`);
+    }
+
+    if (stats.mood) {
+      const moodEmoji = stats.mood === 'great' ? '🤩' : stats.mood === 'good' ? '😊' : stats.mood === 'okay' ? '😐' : stats.mood === 'low' ? '😔' : '😫';
+      insights.push(`${moodEmoji} Your mood today: ${stats.mood}. ${stats.mood === 'great' || stats.mood === 'good' ? 'Keep it up!' : 'Hope it gets better!'}`);
+    }
+
+    return insights;
+  }, [stats]);
+
+  const displayInsights = aiInsights.length > 0 ? aiInsights : localInsights;
+
   return (
-    <div className="pb-4 fade-in">
+    <div className="pb-4 fade-in safe-area-top">
       <div className="mb-6">
         <h1 className="text-3xl font-bold" style={{ color: 'var(--color-text)' }}>Dashboard</h1>
         <p className="text-sm mt-1" style={{ color: 'var(--color-text-secondary)' }}>
@@ -95,10 +190,65 @@ export default function DashboardTab() {
 
       {/* Top Stats Grid */}
       <div className="grid grid-cols-2 gap-3 mb-6">
-        <StatCard icon={DollarSign} label="Spent Today" value={`$${stats.expensesToday.toFixed(2)}`} color="#ef4444" sub={`$${stats.expensesWeek.toFixed(0)} this week`} />
+        <StatCard icon={DollarSign} label="Spent Today" value={formatINR(stats.expensesToday)} color="#ef4444" sub={`${formatINR(stats.expensesWeek)} this week`} />
         <StatCard icon={Utensils} label="Meals Today" value={stats.mealsToday.toString()} color="#f59e0b" sub={`~${stats.caloriesToday} cal`} />
         <StatCard icon={Moon} label="Sleep" value={`${stats.sleepToday}h`} color="#8b5cf6" sub={stats.sleepToday >= 7 ? 'Well rested 😊' : stats.sleepToday > 0 ? 'Could improve 😐' : 'Not logged'} />
         <StatCard icon={Footprints} label="Steps" value={stats.stepsToday.toLocaleString()} color="#10b981" sub={stats.stepsToday >= 10000 ? 'Goal reached! 🎉' : `${Math.max(0, 10000 - stats.stepsToday).toLocaleString()} to goal`} />
+      </div>
+
+      {/* Health Quick Stats */}
+      {(stats.water || stats.mood || stats.energy) && (
+        <div className="grid grid-cols-3 gap-2 mb-6">
+          {stats.water !== undefined && stats.water > 0 && (
+            <div className="card p-3 text-center">
+              <Droplets className="w-5 h-5 mx-auto text-blue-500 mb-1" />
+              <p className="text-lg font-bold" style={{ color: 'var(--color-text)' }}>{stats.water}</p>
+              <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>Glasses</p>
+            </div>
+          )}
+          {stats.energy && (
+            <div className="card p-3 text-center">
+              <Zap className="w-5 h-5 mx-auto text-amber-500 mb-1" />
+              <p className="text-lg font-bold" style={{ color: 'var(--color-text)' }}>{stats.energy}/10</p>
+              <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>Energy</p>
+            </div>
+          )}
+          {stats.mood && (
+            <div className="card p-3 text-center">
+              <Heart className="w-5 h-5 mx-auto text-rose-500 mb-1" />
+              <p className="text-lg font-bold capitalize" style={{ color: 'var(--color-text)' }}>{stats.mood}</p>
+              <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>Mood</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* AI Insights */}
+      <div className="card p-4 mb-4" style={{ background: 'linear-gradient(135deg, rgba(99,102,241,0.05) 0%, rgba(139,92,246,0.05) 100%)' }}>
+        <h3 className="font-semibold mb-3 flex items-center gap-2" style={{ color: 'var(--color-text)' }}>
+          <Brain className="w-4 h-4 text-indigo-500" /> 
+          {hasGeminiApiKey() ? 'AI Insights' : 'Daily Insights'}
+          {loadingInsights && <Loader2 className="w-4 h-4 animate-spin text-indigo-500" />}
+        </h3>
+        <div className="space-y-2">
+          {displayInsights.length > 0 ? (
+            displayInsights.map((insight, i) => (
+              <div key={i} className="flex items-start gap-2 p-3 rounded-xl" style={{ background: 'var(--color-surface-alt)' }}>
+                <TrendingUp className="w-4 h-4 text-indigo-500 mt-0.5 flex-shrink-0" />
+                <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>{insight}</p>
+              </div>
+            ))
+          ) : (
+            <p className="text-sm text-center py-4" style={{ color: 'var(--color-text-tertiary)' }}>
+              Start logging your activities to get personalized insights! ✨
+            </p>
+          )}
+        </div>
+        {!hasGeminiApiKey() && displayInsights.length > 0 && (
+          <p className="text-xs text-center mt-3" style={{ color: 'var(--color-text-tertiary)' }}>
+            Add Gemini API key in Profile for smarter AI insights ✨
+          </p>
+        )}
       </div>
 
       {/* Sleep Chart */}
@@ -170,7 +320,7 @@ export default function DashboardTab() {
                 <div key={item.name} className="flex items-center gap-2">
                   <div className="w-3 h-3 rounded-full" style={{ background: PIE_COLORS[i % PIE_COLORS.length] }} />
                   <span className="text-xs flex-1" style={{ color: 'var(--color-text-secondary)' }}>{item.name}</span>
-                  <span className="text-xs font-medium" style={{ color: 'var(--color-text)' }}>${item.value.toFixed(0)}</span>
+                  <span className="text-xs font-medium" style={{ color: 'var(--color-text)' }}>{formatINR(item.value)}</span>
                 </div>
               ))}
             </div>
@@ -180,34 +330,6 @@ export default function DashboardTab() {
             <p className="text-sm" style={{ color: 'var(--color-text-tertiary)' }}>No expenses logged this week.</p>
           </div>
         )}
-      </div>
-
-      {/* AI Insights Placeholder */}
-      <div className="card p-4 mb-4" style={{ background: 'linear-gradient(135deg, rgba(99,102,241,0.05) 0%, rgba(139,92,246,0.05) 100%)' }}>
-        <h3 className="font-semibold mb-2 flex items-center gap-2" style={{ color: 'var(--color-text)' }}>
-          <Brain className="w-4 h-4 text-indigo-500" /> AI Insights
-        </h3>
-        <div className="space-y-2">
-          <div className="flex items-start gap-2 p-3 rounded-xl" style={{ background: 'var(--color-surface-alt)' }}>
-            <TrendingUp className="w-4 h-4 text-indigo-500 mt-0.5 flex-shrink-0" />
-            <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
-              {stats.sleepToday > 0
-                ? `You slept ${stats.sleepToday}h today. ${stats.sleepToday >= 7 ? 'Great rest!' : 'Try to get more sleep tonight.'}`
-                : 'Log your sleep to get personalized insights.'}
-            </p>
-          </div>
-          <div className="flex items-start gap-2 p-3 rounded-xl" style={{ background: 'var(--color-surface-alt)' }}>
-            <TrendingUp className="w-4 h-4 text-indigo-500 mt-0.5 flex-shrink-0" />
-            <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
-              {stats.expensesWeek > 0
-                ? `You've spent $${stats.expensesWeek.toFixed(0)} this week across ${expensePieData.length} categories.`
-                : 'Track your expenses to see spending patterns.'}
-            </p>
-          </div>
-          <p className="text-xs text-center mt-2" style={{ color: 'var(--color-text-tertiary)' }}>
-            ✨ More insights coming with Gemini AI integration
-          </p>
-        </div>
       </div>
     </div>
   );

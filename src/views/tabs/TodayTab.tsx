@@ -1,26 +1,26 @@
 /**
  * TodayTab - Main daily logging screen
  * 
- * This is the home screen where users can:
- * - Add free-text journal entries
- * - Tag entries by type (general, expense, food, sleep, exercise, note)
- * - Quick-add expenses, food, sleep, or activity
- * - See today's entries in a feed
+ * Updated with:
+ * - INR currency (₹)
+ * - Safe area for Dynamic Island
+ * - Quick add for movies/music/books
+ * - Health tracking
  */
 
 import { useState } from 'react';
 import { useApp } from '../../store/AppContext';
-import { TAG_CONFIG, type EntryTag } from '../../models/types';
+import { TAG_CONFIG, formatINR, formatTime, type EntryTag } from '../../models/types';
 import { format } from 'date-fns';
 import {
   Plus, DollarSign, Utensils, Moon, Footprints,
-  Send, ChevronDown, ChevronUp, X
+  Send, ChevronDown, ChevronUp, X, Film, Heart, Droplets
 } from 'lucide-react';
 
-type QuickAddMode = null | 'expense' | 'food' | 'sleep' | 'activity';
+type QuickAddMode = null | 'expense' | 'food' | 'sleep' | 'activity' | 'health' | 'list';
 
 export default function TodayTab() {
-  const { state, addLog, addExpense, addFood, addSleep, addActivity } = useApp();
+  const { state, addLog, addExpense, addFood, addSleep, addActivity, addHealthMetrics, addListItem } = useApp();
   const [logText, setLogText] = useState('');
   const [selectedTag, setSelectedTag] = useState<EntryTag>('general');
   const [quickAdd, setQuickAdd] = useState<QuickAddMode>(null);
@@ -45,6 +45,15 @@ export default function TodayTab() {
   const [actSteps, setActSteps] = useState('');
   const [actDistance, setActDistance] = useState('');
 
+  // Health form
+  const [healthMood, setHealthMood] = useState<'great' | 'good' | 'okay' | 'low' | 'bad'>('good');
+  const [healthEnergy, setHealthEnergy] = useState('7');
+  const [healthWater, setHealthWater] = useState('');
+
+  // List form
+  const [listType, setListType] = useState<'movie' | 'music' | 'book'>('movie');
+  const [listTitle, setListTitle] = useState('');
+
   const today = new Date().toISOString().split('T')[0];
   const todayLogs = state.dailyLogs.filter(l => l.createdAt.startsWith(today));
   const todayExpenses = state.expenses.filter(e => e.createdAt.startsWith(today));
@@ -54,7 +63,7 @@ export default function TodayTab() {
 
   const allTodayItems = [
     ...todayLogs.map(l => ({ ...l, _type: 'log' as const })),
-    ...todayExpenses.map(e => ({ ...e, _type: 'expense' as const, tag: 'expense' as EntryTag, text: `$${e.amount} - ${e.category}${e.note ? ': ' + e.note : ''}` })),
+    ...todayExpenses.map(e => ({ ...e, _type: 'expense' as const, tag: 'expense' as EntryTag, text: `${formatINR(e.amount)} - ${e.category}${e.note ? ': ' + e.note : ''}` })),
     ...todayFood.map(f => ({ ...f, _type: 'food' as const, tag: 'food' as EntryTag, text: `${f.name} (${f.portionSize})${f.calories ? ' - ' + f.calories + ' cal' : ''}` })),
     ...todaySleep.map(s => ({ ...s, _type: 'sleep' as const, tag: 'sleep' as EntryTag, text: `${s.hours}h sleep - ${s.quality}` })),
     ...todayActivity.map(a => ({ ...a, _type: 'activity' as const, tag: 'exercise' as EntryTag, text: `${a.steps.toLocaleString()} steps${a.distanceKm ? ' - ' + a.distanceKm + ' km' : ''}` })),
@@ -98,13 +107,29 @@ export default function TodayTab() {
     setQuickAdd(null);
   };
 
+  const handleSubmitHealth = () => {
+    addHealthMetrics({
+      mood: healthMood,
+      energyLevel: parseInt(healthEnergy),
+      waterIntake: healthWater ? parseInt(healthWater) : undefined,
+    });
+    setQuickAdd(null);
+  };
+
+  const handleSubmitList = () => {
+    if (!listTitle.trim()) return;
+    addListItem(listType, listTitle.trim());
+    setListTitle('');
+    setQuickAdd(null);
+  };
+
   return (
-    <div className="pb-4 fade-in">
+    <div className="pb-4 fade-in safe-area-top">
       {/* Header */}
       <div className="mb-6">
         <h1 className="text-3xl font-bold" style={{ color: 'var(--color-text)' }}>Today</h1>
         <p className="text-sm mt-1" style={{ color: 'var(--color-text-secondary)' }}>
-          {format(new Date(), 'EEEE, MMMM d, yyyy')}
+          {format(new Date(), 'EEEE, d MMMM yyyy')}
         </p>
       </div>
 
@@ -116,7 +141,7 @@ export default function TodayTab() {
         </div>
         <div className="card p-3 text-center">
           <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>Spent</p>
-          <p className="text-lg font-bold text-red-500">${todayExpenses.reduce((s, e) => s + e.amount, 0).toFixed(0)}</p>
+          <p className="text-lg font-bold text-red-500">{formatINR(todayExpenses.reduce((s, e) => s + e.amount, 0))}</p>
         </div>
         <div className="card p-3 text-center">
           <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>Meals</p>
@@ -140,14 +165,12 @@ export default function TodayTab() {
             value={logText}
             onChange={e => setLogText(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmitLog(); } }}
-            aria-label="Log entry text"
           />
           <button
             className="ios-btn ios-btn-primary self-end"
             style={{ padding: '12px 14px' }}
             onClick={handleSubmitLog}
             disabled={!logText.trim()}
-            aria-label="Submit log entry"
           >
             <Send className="w-5 h-5" />
           </button>
@@ -155,38 +178,51 @@ export default function TodayTab() {
 
         {/* Tag selector */}
         <div className="flex gap-2 flex-wrap">
-          {(Object.keys(TAG_CONFIG) as EntryTag[]).map(tag => (
+          {(Object.keys(TAG_CONFIG) as EntryTag[]).slice(0, 6).map(tag => (
             <button
               key={tag}
               className={`tag-chip ${selectedTag === tag ? 'selected' : ''}`}
               onClick={() => setSelectedTag(tag)}
-              aria-label={`Tag: ${TAG_CONFIG[tag].label}`}
             >
-              {TAG_CONFIG[tag].label}
+              {TAG_CONFIG[tag].emoji} {TAG_CONFIG[tag].label}
             </button>
           ))}
         </div>
       </div>
 
-      {/* Quick Add Buttons */}
-      <div className="grid grid-cols-4 gap-2 mb-4">
+      {/* Quick Add Buttons - 2 rows */}
+      <div className="grid grid-cols-4 gap-2 mb-2">
         {([
           { mode: 'expense' as const, icon: DollarSign, label: 'Expense', color: '#ef4444' },
           { mode: 'food' as const, icon: Utensils, label: 'Food', color: '#f59e0b' },
           { mode: 'sleep' as const, icon: Moon, label: 'Sleep', color: '#8b5cf6' },
-          { mode: 'activity' as const, icon: Footprints, label: 'Activity', color: '#10b981' },
+          { mode: 'activity' as const, icon: Footprints, label: 'Steps', color: '#10b981' },
         ]).map(({ mode, icon: Icon, label, color }) => (
           <button
             key={mode}
-            className={`card p-3 text-center transition-all ${quickAdd === mode ? 'ring-2' : ''}`}
-            style={quickAdd === mode ? { borderColor: color } : {}}
+            className={`card p-3 text-center transition-all ${quickAdd === mode ? 'ring-2 ring-indigo-500' : ''}`}
             onClick={() => setQuickAdd(quickAdd === mode ? null : mode)}
-            aria-label={`Quick add ${label}`}
           >
             <Icon className="w-5 h-5 mx-auto mb-1" style={{ color }} />
             <span className="text-xs font-medium" style={{ color: 'var(--color-text-secondary)' }}>{label}</span>
           </button>
         ))}
+      </div>
+      <div className="grid grid-cols-4 gap-2 mb-4">
+        {([
+          { mode: 'health' as const, icon: Heart, label: 'Health', color: '#f43f5e' },
+          { mode: 'list' as const, icon: Film, label: 'Lists', color: '#ec4899' },
+        ]).map(({ mode, icon: Icon, label, color }) => (
+          <button
+            key={mode}
+            className={`card p-3 text-center transition-all ${quickAdd === mode ? 'ring-2 ring-indigo-500' : ''}`}
+            onClick={() => setQuickAdd(quickAdd === mode ? null : mode)}
+          >
+            <Icon className="w-5 h-5 mx-auto mb-1" style={{ color }} />
+            <span className="text-xs font-medium" style={{ color: 'var(--color-text-secondary)' }}>{label}</span>
+          </button>
+        ))}
+        <div className="col-span-2"></div>
       </div>
 
       {/* Quick Add Forms */}
@@ -198,17 +234,22 @@ export default function TodayTab() {
               {quickAdd === 'food' && '🍽️ Add Food'}
               {quickAdd === 'sleep' && '😴 Add Sleep'}
               {quickAdd === 'activity' && '🏃 Add Activity'}
+              {quickAdd === 'health' && '❤️ Health Check'}
+              {quickAdd === 'list' && '📝 Add to List'}
             </h3>
-            <button onClick={() => setQuickAdd(null)} aria-label="Close form">
+            <button onClick={() => setQuickAdd(null)}>
               <X className="w-5 h-5" style={{ color: 'var(--color-text-tertiary)' }} />
             </button>
           </div>
 
           {quickAdd === 'expense' && (
             <div className="space-y-3">
-              <input className="ios-input" type="number" placeholder="Amount ($)" value={expAmount} onChange={e => setExpAmount(e.target.value)} step="0.01" />
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-lg">₹</span>
+                <input className="ios-input pl-8" type="number" placeholder="Amount" value={expAmount} onChange={e => setExpAmount(e.target.value)} />
+              </div>
               <select className="ios-input" value={expCategory} onChange={e => setExpCategory(e.target.value)}>
-                {['Food & Dining', 'Transportation', 'Shopping', 'Bills & Utilities', 'Entertainment', 'Healthcare', 'Education', 'Other'].map(c => (
+                {['Food & Dining', 'Transportation', 'Shopping', 'Bills & Utilities', 'Entertainment', 'Healthcare', 'Education', 'Groceries', 'Travel', 'Other'].map(c => (
                   <option key={c} value={c}>{c}</option>
                 ))}
               </select>
@@ -227,7 +268,7 @@ export default function TodayTab() {
               <div className="flex gap-2 flex-wrap">
                 {(['breakfast', 'lunch', 'dinner', 'snack'] as const).map(m => (
                   <button key={m} className={`tag-chip ${foodMeal === m ? 'selected' : ''}`} onClick={() => setFoodMeal(m)}>
-                    {m.charAt(0).toUpperCase() + m.slice(1)}
+                    {m === 'breakfast' ? '🌅' : m === 'lunch' ? '☀️' : m === 'dinner' ? '🌙' : '🍿'} {m.charAt(0).toUpperCase() + m.slice(1)}
                   </button>
                 ))}
               </div>
@@ -269,6 +310,55 @@ export default function TodayTab() {
               </button>
             </div>
           )}
+
+          {quickAdd === 'health' && (
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm mb-2" style={{ color: 'var(--color-text-secondary)' }}>How are you feeling?</label>
+                <div className="flex gap-2 flex-wrap">
+                  {(['great', 'good', 'okay', 'low', 'bad'] as const).map(m => (
+                    <button key={m} className={`tag-chip ${healthMood === m ? 'selected' : ''}`} onClick={() => setHealthMood(m)}>
+                      {m === 'great' ? '🤩' : m === 'good' ? '😊' : m === 'okay' ? '😐' : m === 'low' ? '😔' : '😫'} {m.charAt(0).toUpperCase() + m.slice(1)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm mb-1" style={{ color: 'var(--color-text-secondary)' }}>
+                  Energy level: <strong>{healthEnergy}/10</strong>
+                </label>
+                <input type="range" min="1" max="10" value={healthEnergy}
+                  onChange={e => setHealthEnergy(e.target.value)}
+                  className="w-full accent-rose-500" />
+              </div>
+              <div className="flex items-center gap-2">
+                <Droplets className="w-5 h-5 text-blue-500" />
+                <input className="ios-input flex-1" type="number" placeholder="Glasses of water" value={healthWater} onChange={e => setHealthWater(e.target.value)} />
+              </div>
+              <button className="ios-btn ios-btn-primary w-full" onClick={handleSubmitHealth}>
+                <Heart className="w-4 h-4" /> Log Health
+              </button>
+            </div>
+          )}
+
+          {quickAdd === 'list' && (
+            <div className="space-y-3">
+              <div className="flex gap-2">
+                {(['movie', 'music', 'book'] as const).map(t => (
+                  <button key={t} className={`flex-1 py-2 rounded-xl text-sm font-medium ${listType === t ? 'bg-indigo-500 text-white' : ''}`}
+                    style={listType !== t ? { background: 'var(--color-surface-alt)', color: 'var(--color-text-secondary)' } : {}}
+                    onClick={() => setListType(t)}>
+                    {t === 'movie' ? '🎬' : t === 'music' ? '🎵' : '📚'} {t.charAt(0).toUpperCase() + t.slice(1)}
+                  </button>
+                ))}
+              </div>
+              <input className="ios-input" placeholder={`${listType.charAt(0).toUpperCase() + listType.slice(1)} title...`} 
+                value={listTitle} onChange={e => setListTitle(e.target.value)} />
+              <button className="ios-btn ios-btn-primary w-full" onClick={handleSubmitList}>
+                <Plus className="w-4 h-4" /> Add to {listType.charAt(0).toUpperCase() + listType.slice(1)}s
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -293,9 +383,7 @@ export default function TodayTab() {
                 <div key={item.id} className="card p-3 flex items-start gap-3">
                   <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5"
                     style={{ background: config.bg }}>
-                    <span className="text-sm">
-                      {tag === 'general' ? '📋' : tag === 'expense' ? '💰' : tag === 'food' ? '🍽️' : tag === 'sleep' ? '😴' : tag === 'exercise' ? '🏃' : '📌'}
-                    </span>
+                    <span className="text-sm">{config.emoji}</span>
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm" style={{ color: 'var(--color-text)' }}>
@@ -306,7 +394,7 @@ export default function TodayTab() {
                         {config.label}
                       </span>
                       <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
-                        {format(new Date(item.createdAt), 'h:mm a')}
+                        {formatTime(item.createdAt)}
                       </span>
                     </div>
                   </div>

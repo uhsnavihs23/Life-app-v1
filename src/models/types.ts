@@ -1,15 +1,11 @@
 /**
  * LifeLog AI - Data Models
  * 
- * These are all the data types used throughout the app.
- * Each model is Serializable (plain objects) so they can be
- * easily stored in localStorage, JSON files, or later a real database.
- * 
- * When migrating to a real backend, these same types can be reused
- * as the shape of your API responses.
+ * All data types used throughout the app.
+ * Designed to work with Supabase for cloud storage.
  */
 
-/** User profile - stored after login */
+/** User profile */
 export interface User {
   id: string;
   username: string;
@@ -19,78 +15,83 @@ export interface User {
   createdAt: string;
 }
 
-/** Entry tag types for categorizing journal logs */
-export type EntryTag = 'general' | 'expense' | 'food' | 'sleep' | 'exercise' | 'note';
+/** Entry tag types */
+export type EntryTag = 'general' | 'expense' | 'food' | 'sleep' | 'exercise' | 'note' | 'movie' | 'music' | 'book' | 'health';
 
-/** A single daily log entry (free-text journal style) */
+/** A daily log entry */
 export interface DailyLogEntry {
   id: string;
   userId: string;
   text: string;
   tag: EntryTag;
   createdAt: string;
-  /** AI-classified structured data (filled later by Gemini) */
   classifiedData?: Record<string, unknown>;
 }
 
-/** An expense entry with amount, category, and note */
+/** An expense entry - now in INR */
 export interface ExpenseEntry {
   id: string;
   userId: string;
   amount: number;
-  currency: string;
+  currency: string; // 'INR'
   category: string;
   note: string;
   createdAt: string;
 }
 
-/** A food entry with name, portion, and optional calories */
+/** A food entry */
 export interface FoodEntry {
   id: string;
   userId: string;
   name: string;
   portionSize: string;
   calories?: number;
+  protein?: number;
+  carbs?: number;
+  fat?: number;
   mealType: 'breakfast' | 'lunch' | 'dinner' | 'snack';
   createdAt: string;
 }
 
-/** A sleep summary for a given date */
+/** A sleep entry */
 export interface SleepEntry {
   id: string;
   userId: string;
   hours: number;
   quality: 'poor' | 'fair' | 'good' | 'excellent';
+  bedTime?: string;
+  wakeTime?: string;
   date: string;
   createdAt: string;
 }
 
-/** Steps / distance activity entry */
+/** Activity entry */
 export interface ActivityEntry {
   id: string;
   userId: string;
   steps: number;
   distanceKm?: number;
+  activeMinutes?: number;
+  caloriesBurned?: number;
   date: string;
   source: 'manual' | 'healthkit';
   createdAt: string;
 }
 
-/** A file attachment (PDF or image) */
+/** File attachment */
 export interface FileAttachment {
   id: string;
   userId: string;
   fileName: string;
   fileType: 'pdf' | 'image';
-  /** For web demo, we store a data URL or placeholder */
   localUrl: string;
   thumbnailUrl?: string;
-  /** OCR / extracted text from AI (placeholder for Gemini) */
   extractedText?: string;
+  extractedAmount?: number;
   createdAt: string;
 }
 
-/** A reminder with optional recurrence */
+/** Reminder */
 export interface Reminder {
   id: string;
   userId: string;
@@ -103,24 +104,69 @@ export interface Reminder {
   createdAt: string;
 }
 
-/** Chat message for the AI / Search screen */
+/** Chat message */
 export interface ChatMessage {
   id: string;
+  userId: string;
   role: 'user' | 'assistant';
   content: string;
   timestamp: string;
 }
 
-/** Dashboard summary for aggregated views */
+/** Custom list item (for movies, songs, books, etc.) */
+export interface ListItem {
+  id: string;
+  userId: string;
+  listType: 'movie' | 'music' | 'book' | 'podcast' | 'show' | 'game' | 'custom';
+  title: string;
+  note?: string;
+  rating?: number; // 1-5
+  status: 'watched' | 'listening' | 'reading' | 'playing' | 'completed' | 'want_to' | 'in_progress';
+  dateAdded: string;
+  dateCompleted?: string;
+  createdAt: string;
+}
+
+/** Health metrics for deep insights */
+export interface HealthMetrics {
+  id: string;
+  userId: string;
+  date: string;
+  weight?: number; // kg
+  waterIntake?: number; // glasses
+  mood?: 'great' | 'good' | 'okay' | 'low' | 'bad';
+  energyLevel?: number; // 1-10
+  stressLevel?: number; // 1-10
+  notes?: string;
+  createdAt: string;
+}
+
+/** Activity timeline - tracks EVERYTHING */
+export interface ActivityTimeline {
+  id: string;
+  userId: string;
+  action: string; // What was done
+  category: EntryTag | 'list' | 'health' | 'file' | 'reminder';
+  details: string;
+  metadata?: Record<string, unknown>;
+  createdAt: string;
+}
+
+/** Dashboard summary */
 export interface DashboardSummary {
   totalExpensesToday: number;
   totalExpensesWeek: number;
+  totalExpensesMonth: number;
   mealsToday: number;
   caloriesEstimate: number;
+  proteinToday: number;
+  carbsToday: number;
+  fatToday: number;
   sleepHoursToday: number;
   sleepAvgWeek: number;
   stepsToday: number;
   entriesCount: number;
+  waterIntake: number;
 }
 
 /** Expense categories */
@@ -132,15 +178,68 @@ export const EXPENSE_CATEGORIES = [
   'Entertainment',
   'Healthcare',
   'Education',
+  'Groceries',
+  'Rent',
+  'Travel',
+  'Subscriptions',
+  'Personal Care',
+  'Gifts',
   'Other',
 ] as const;
 
+/** List types */
+export const LIST_TYPES = [
+  { id: 'movie', label: 'Movies', emoji: '🎬' },
+  { id: 'music', label: 'Music', emoji: '🎵' },
+  { id: 'book', label: 'Books', emoji: '📚' },
+  { id: 'podcast', label: 'Podcasts', emoji: '🎙️' },
+  { id: 'show', label: 'TV Shows', emoji: '📺' },
+  { id: 'game', label: 'Games', emoji: '🎮' },
+  { id: 'custom', label: 'Custom', emoji: '📝' },
+] as const;
+
 /** Entry tag labels and colors */
-export const TAG_CONFIG: Record<EntryTag, { label: string; color: string; bg: string }> = {
-  general: { label: 'General', color: '#6366f1', bg: 'rgba(99,102,241,0.1)' },
-  expense: { label: 'Expense', color: '#ef4444', bg: 'rgba(239,68,68,0.1)' },
-  food: { label: 'Food', color: '#f59e0b', bg: 'rgba(245,158,11,0.1)' },
-  sleep: { label: 'Sleep', color: '#8b5cf6', bg: 'rgba(139,92,246,0.1)' },
-  exercise: { label: 'Exercise', color: '#10b981', bg: 'rgba(16,185,129,0.1)' },
-  note: { label: 'Note', color: '#64748b', bg: 'rgba(100,116,139,0.1)' },
+export const TAG_CONFIG: Record<EntryTag, { label: string; color: string; bg: string; emoji: string }> = {
+  general: { label: 'General', color: '#6366f1', bg: 'rgba(99,102,241,0.1)', emoji: '📋' },
+  expense: { label: 'Expense', color: '#ef4444', bg: 'rgba(239,68,68,0.1)', emoji: '💰' },
+  food: { label: 'Food', color: '#f59e0b', bg: 'rgba(245,158,11,0.1)', emoji: '🍽️' },
+  sleep: { label: 'Sleep', color: '#8b5cf6', bg: 'rgba(139,92,246,0.1)', emoji: '😴' },
+  exercise: { label: 'Exercise', color: '#10b981', bg: 'rgba(16,185,129,0.1)', emoji: '🏃' },
+  note: { label: 'Note', color: '#64748b', bg: 'rgba(100,116,139,0.1)', emoji: '📌' },
+  movie: { label: 'Movie', color: '#ec4899', bg: 'rgba(236,72,153,0.1)', emoji: '🎬' },
+  music: { label: 'Music', color: '#06b6d4', bg: 'rgba(6,182,212,0.1)', emoji: '🎵' },
+  book: { label: 'Book', color: '#84cc16', bg: 'rgba(132,204,22,0.1)', emoji: '📚' },
+  health: { label: 'Health', color: '#f43f5e', bg: 'rgba(244,63,94,0.1)', emoji: '❤️' },
 };
+
+/** Format currency in INR */
+export function formatINR(amount: number): string {
+  return new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  }).format(amount);
+}
+
+/** Format date for display */
+export function formatDate(dateString: string): string {
+  return new Date(dateString).toLocaleDateString('en-IN', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
+}
+
+/** Format time */
+export function formatTime(dateString: string): string {
+  return new Date(dateString).toLocaleTimeString('en-IN', {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+/** Format datetime */
+export function formatDateTime(dateString: string): string {
+  return `${formatDate(dateString)} at ${formatTime(dateString)}`;
+}

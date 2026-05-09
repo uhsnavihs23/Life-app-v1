@@ -124,7 +124,7 @@ struct LoginView: View {
                     }
                     .disabled(authViewModel.isLoading)
                     
-                    Text("Demo mode — any credentials will work")
+                    Text("Welcome Onboard!")
                         .font(.caption2)
                         .foregroundColor(.secondary)
                 }

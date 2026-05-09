@@ -68,7 +68,7 @@ export default function RemindersTab() {
     .sort((a, b) => new Date(b.dateTime).getTime() - new Date(a.dateTime).getTime());
 
   return (
-    <div className="pb-4 fade-in">
+    <div className="pb-4 fade-in safe-area-top">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-3xl font-bold" style={{ color: 'var(--color-text)' }}>Reminders</h1>

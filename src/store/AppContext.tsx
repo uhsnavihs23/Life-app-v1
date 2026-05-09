@@ -1,11 +1,8 @@
 /**
  * AppContext - Global State Management
  * 
- * This is the central state store for the entire app.
- * It replaces what would be @Published properties in SwiftUI ViewModels.
- * 
- * All data is persisted to localStorage via StorageService.
- * State changes trigger re-renders via React Context.
+ * Central state store with Supabase integration support.
+ * Data persists locally and can sync to cloud.
  */
 
 import React, { createContext, useContext, useReducer, useEffect, useCallback } from 'react';
@@ -13,11 +10,11 @@ import { v4 as uuid } from 'uuid';
 import type {
   User, DailyLogEntry, ExpenseEntry, FoodEntry,
   SleepEntry, ActivityEntry, FileAttachment, Reminder,
-  ChatMessage, EntryTag,
+  ChatMessage, EntryTag, ListItem, HealthMetrics, ActivityTimeline,
 } from '../models/types';
 import { StorageService } from '../services/StorageService';
 
-/** Shape of the entire app state */
+/** App state shape */
 interface AppState {
   user: User | null;
   isLoggedIn: boolean;
@@ -30,9 +27,12 @@ interface AppState {
   files: FileAttachment[];
   reminders: Reminder[];
   chatMessages: ChatMessage[];
+  listItems: ListItem[];
+  healthMetrics: HealthMetrics[];
+  activityTimeline: ActivityTimeline[];
 }
 
-/** Actions that can modify state */
+/** Actions */
 type Action =
   | { type: 'LOGIN'; user: User }
   | { type: 'LOGOUT' }
@@ -48,6 +48,11 @@ type Action =
   | { type: 'TOGGLE_REMINDER'; id: string }
   | { type: 'DELETE_REMINDER'; id: string }
   | { type: 'ADD_CHAT_MESSAGE'; message: ChatMessage }
+  | { type: 'ADD_LIST_ITEM'; item: ListItem }
+  | { type: 'UPDATE_LIST_ITEM'; item: ListItem }
+  | { type: 'DELETE_LIST_ITEM'; id: string }
+  | { type: 'ADD_HEALTH_METRICS'; metrics: HealthMetrics }
+  | { type: 'ADD_TIMELINE'; entry: ActivityTimeline }
   | { type: 'LOAD_STATE'; state: Partial<AppState> }
   | { type: 'UPDATE_PROFILE'; displayName: string; email: string };
 
@@ -63,6 +68,9 @@ const initialState: AppState = {
   files: [],
   reminders: [],
   chatMessages: [],
+  listItems: [],
+  healthMetrics: [],
+  activityTimeline: [],
 };
 
 function reducer(state: AppState, action: Action): AppState {
@@ -105,6 +113,19 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, reminders: state.reminders.filter(r => r.id !== action.id) };
     case 'ADD_CHAT_MESSAGE':
       return { ...state, chatMessages: [...state.chatMessages, action.message] };
+    case 'ADD_LIST_ITEM':
+      return { ...state, listItems: [action.item, ...state.listItems] };
+    case 'UPDATE_LIST_ITEM':
+      return {
+        ...state,
+        listItems: state.listItems.map(i => i.id === action.item.id ? action.item : i),
+      };
+    case 'DELETE_LIST_ITEM':
+      return { ...state, listItems: state.listItems.filter(i => i.id !== action.id) };
+    case 'ADD_HEALTH_METRICS':
+      return { ...state, healthMetrics: [action.metrics, ...state.healthMetrics] };
+    case 'ADD_TIMELINE':
+      return { ...state, activityTimeline: [action.entry, ...state.activityTimeline] };
     case 'LOAD_STATE':
       return { ...state, ...action.state };
     case 'UPDATE_PROFILE':
@@ -118,15 +139,17 @@ function reducer(state: AppState, action: Action): AppState {
 interface AppContextValue {
   state: AppState;
   dispatch: React.Dispatch<Action>;
-  // Convenience action creators
   addLog: (text: string, tag: EntryTag) => void;
   addExpense: (amount: number, category: string, note: string) => void;
-  addFood: (name: string, portionSize: string, calories: number | undefined, mealType: FoodEntry['mealType']) => void;
-  addSleep: (hours: number, quality: SleepEntry['quality']) => void;
-  addActivity: (steps: number, distanceKm?: number) => void;
+  addFood: (name: string, portionSize: string, calories: number | undefined, mealType: FoodEntry['mealType'], protein?: number, carbs?: number, fat?: number) => void;
+  addSleep: (hours: number, quality: SleepEntry['quality'], bedTime?: string, wakeTime?: string) => void;
+  addActivity: (steps: number, distanceKm?: number, activeMinutes?: number, caloriesBurned?: number) => void;
   addFile: (fileName: string, fileType: 'pdf' | 'image', localUrl: string) => void;
   addReminder: (title: string, description: string, dateTime: string, isRecurring: boolean, recurrenceInterval?: Reminder['recurrenceInterval']) => void;
   addChatMessage: (role: ChatMessage['role'], content: string) => void;
+  addListItem: (listType: ListItem['listType'], title: string, note?: string, rating?: number, status?: ListItem['status']) => void;
+  addHealthMetrics: (data: Partial<HealthMetrics>) => void;
+  addTimeline: (action: string, category: ActivityTimeline['category'], details: string, metadata?: Record<string, unknown>) => void;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -149,96 +172,175 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [state]);
 
-  // Apply dark mode class
+  // Apply dark mode
   useEffect(() => {
     document.documentElement.classList.toggle('dark', state.darkMode);
   }, [state.darkMode]);
 
-  const addLog = useCallback((text: string, tag: EntryTag) => {
+  // Helper to add timeline entry
+  const addTimelineEntry = useCallback((action: string, category: ActivityTimeline['category'], details: string, metadata?: Record<string, unknown>) => {
     dispatch({
-      type: 'ADD_LOG',
+      type: 'ADD_TIMELINE',
       entry: {
-        id: uuid(), userId: state.user?.id || '', text, tag,
+        id: uuid(),
+        userId: state.user?.id || '',
+        action,
+        category,
+        details,
+        metadata,
         createdAt: new Date().toISOString(),
       },
     });
   }, [state.user]);
+
+  const addLog = useCallback((text: string, tag: EntryTag) => {
+    const entry: DailyLogEntry = {
+      id: uuid(),
+      userId: state.user?.id || '',
+      text,
+      tag,
+      createdAt: new Date().toISOString(),
+    };
+    dispatch({ type: 'ADD_LOG', entry });
+    addTimelineEntry('Added log entry', tag, text);
+  }, [state.user, addTimelineEntry]);
 
   const addExpense = useCallback((amount: number, category: string, note: string) => {
-    dispatch({
-      type: 'ADD_EXPENSE',
-      entry: {
-        id: uuid(), userId: state.user?.id || '', amount, currency: 'USD',
-        category, note, createdAt: new Date().toISOString(),
-      },
-    });
-  }, [state.user]);
+    const entry: ExpenseEntry = {
+      id: uuid(),
+      userId: state.user?.id || '',
+      amount,
+      currency: 'INR',
+      category,
+      note,
+      createdAt: new Date().toISOString(),
+    };
+    dispatch({ type: 'ADD_EXPENSE', entry });
+    addTimelineEntry('Added expense', 'expense', `₹${amount} - ${category}${note ? ': ' + note : ''}`, { amount, category });
+  }, [state.user, addTimelineEntry]);
 
-  const addFood = useCallback((name: string, portionSize: string, calories: number | undefined, mealType: FoodEntry['mealType']) => {
-    dispatch({
-      type: 'ADD_FOOD',
-      entry: {
-        id: uuid(), userId: state.user?.id || '', name, portionSize,
-        calories, mealType, createdAt: new Date().toISOString(),
-      },
-    });
-  }, [state.user]);
+  const addFood = useCallback((name: string, portionSize: string, calories: number | undefined, mealType: FoodEntry['mealType'], protein?: number, carbs?: number, fat?: number) => {
+    const entry: FoodEntry = {
+      id: uuid(),
+      userId: state.user?.id || '',
+      name,
+      portionSize,
+      calories,
+      protein,
+      carbs,
+      fat,
+      mealType,
+      createdAt: new Date().toISOString(),
+    };
+    dispatch({ type: 'ADD_FOOD', entry });
+    addTimelineEntry('Added food', 'food', `${name} (${portionSize})${calories ? ' - ' + calories + ' cal' : ''}`, { name, calories, mealType });
+  }, [state.user, addTimelineEntry]);
 
-  const addSleep = useCallback((hours: number, quality: SleepEntry['quality']) => {
-    dispatch({
-      type: 'ADD_SLEEP',
-      entry: {
-        id: uuid(), userId: state.user?.id || '', hours, quality,
-        date: new Date().toISOString().split('T')[0],
-        createdAt: new Date().toISOString(),
-      },
-    });
-  }, [state.user]);
+  const addSleep = useCallback((hours: number, quality: SleepEntry['quality'], bedTime?: string, wakeTime?: string) => {
+    const entry: SleepEntry = {
+      id: uuid(),
+      userId: state.user?.id || '',
+      hours,
+      quality,
+      bedTime,
+      wakeTime,
+      date: new Date().toISOString().split('T')[0],
+      createdAt: new Date().toISOString(),
+    };
+    dispatch({ type: 'ADD_SLEEP', entry });
+    addTimelineEntry('Added sleep record', 'sleep', `${hours}h - ${quality} quality`, { hours, quality });
+  }, [state.user, addTimelineEntry]);
 
-  const addActivity = useCallback((steps: number, distanceKm?: number) => {
-    dispatch({
-      type: 'ADD_ACTIVITY',
-      entry: {
-        id: uuid(), userId: state.user?.id || '', steps, distanceKm,
-        date: new Date().toISOString().split('T')[0],
-        source: 'manual', createdAt: new Date().toISOString(),
-      },
-    });
-  }, [state.user]);
+  const addActivity = useCallback((steps: number, distanceKm?: number, activeMinutes?: number, caloriesBurned?: number) => {
+    const entry: ActivityEntry = {
+      id: uuid(),
+      userId: state.user?.id || '',
+      steps,
+      distanceKm,
+      activeMinutes,
+      caloriesBurned,
+      date: new Date().toISOString().split('T')[0],
+      source: 'manual',
+      createdAt: new Date().toISOString(),
+    };
+    dispatch({ type: 'ADD_ACTIVITY', entry });
+    addTimelineEntry('Added activity', 'exercise', `${steps.toLocaleString()} steps${distanceKm ? ' - ' + distanceKm + ' km' : ''}`, { steps, distanceKm });
+  }, [state.user, addTimelineEntry]);
 
   const addFile = useCallback((fileName: string, fileType: 'pdf' | 'image', localUrl: string) => {
-    dispatch({
-      type: 'ADD_FILE',
-      file: {
-        id: uuid(), userId: state.user?.id || '', fileName, fileType,
-        localUrl, createdAt: new Date().toISOString(),
-      },
-    });
-  }, [state.user]);
+    const file: FileAttachment = {
+      id: uuid(),
+      userId: state.user?.id || '',
+      fileName,
+      fileType,
+      localUrl,
+      createdAt: new Date().toISOString(),
+    };
+    dispatch({ type: 'ADD_FILE', file });
+    addTimelineEntry('Uploaded file', 'file', fileName, { fileType });
+  }, [state.user, addTimelineEntry]);
 
   const addReminder = useCallback((title: string, description: string, dateTime: string, isRecurring: boolean, recurrenceInterval?: Reminder['recurrenceInterval']) => {
-    dispatch({
-      type: 'ADD_REMINDER',
-      reminder: {
-        id: uuid(), userId: state.user?.id || '', title, description,
-        dateTime, isRecurring, recurrenceInterval, isCompleted: false,
-        createdAt: new Date().toISOString(),
-      },
-    });
-  }, [state.user]);
+    const reminder: Reminder = {
+      id: uuid(),
+      userId: state.user?.id || '',
+      title,
+      description,
+      dateTime,
+      isRecurring,
+      recurrenceInterval,
+      isCompleted: false,
+      createdAt: new Date().toISOString(),
+    };
+    dispatch({ type: 'ADD_REMINDER', reminder });
+    addTimelineEntry('Created reminder', 'reminder', title, { dateTime, isRecurring });
+  }, [state.user, addTimelineEntry]);
 
   const addChatMessage = useCallback((role: ChatMessage['role'], content: string) => {
     dispatch({
       type: 'ADD_CHAT_MESSAGE',
-      message: { id: uuid(), role, content, timestamp: new Date().toISOString() },
+      message: { id: uuid(), userId: state.user?.id || '', role, content, timestamp: new Date().toISOString() },
     });
-  }, []);
+  }, [state.user]);
+
+  const addListItem = useCallback((listType: ListItem['listType'], title: string, note?: string, rating?: number, status: ListItem['status'] = 'completed') => {
+    const item: ListItem = {
+      id: uuid(),
+      userId: state.user?.id || '',
+      listType,
+      title,
+      note,
+      rating,
+      status,
+      dateAdded: new Date().toISOString(),
+      createdAt: new Date().toISOString(),
+    };
+    dispatch({ type: 'ADD_LIST_ITEM', item });
+    addTimelineEntry(`Added to ${listType} list`, 'list', title, { listType, rating });
+  }, [state.user, addTimelineEntry]);
+
+  const addHealthMetrics = useCallback((data: Partial<HealthMetrics>) => {
+    const metrics: HealthMetrics = {
+      id: uuid(),
+      userId: state.user?.id || '',
+      date: new Date().toISOString().split('T')[0],
+      ...data,
+      createdAt: new Date().toISOString(),
+    };
+    dispatch({ type: 'ADD_HEALTH_METRICS', metrics });
+    addTimelineEntry('Logged health metrics', 'health', `Mood: ${data.mood || 'N/A'}, Energy: ${data.energyLevel || 'N/A'}/10`, data);
+  }, [state.user, addTimelineEntry]);
+
+  const addTimeline = useCallback((action: string, category: ActivityTimeline['category'], details: string, metadata?: Record<string, unknown>) => {
+    addTimelineEntry(action, category, details, metadata);
+  }, [addTimelineEntry]);
 
   return (
     <AppContext.Provider value={{
       state, dispatch,
       addLog, addExpense, addFood, addSleep, addActivity,
-      addFile, addReminder, addChatMessage,
+      addFile, addReminder, addChatMessage, addListItem,
+      addHealthMetrics, addTimeline,
     }}>
       {children}
     </AppContext.Provider>

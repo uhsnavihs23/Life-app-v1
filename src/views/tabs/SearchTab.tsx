@@ -50,7 +50,7 @@ export default function SearchTab() {
   ];
 
   return (
-    <div className="flex flex-col h-[calc(100vh-140px)] fade-in">
+    <div className="flex flex-col h-[calc(100vh-140px)] fade-in safe-area-top">
       {/* Header */}
       <div className="mb-4">
         <h1 className="text-3xl font-bold" style={{ color: 'var(--color-text)' }}>Search & AI</h1>

@@ -126,7 +126,7 @@ export default function FilesTab() {
   }
 
   return (
-    <div className="pb-4 fade-in">
+    <div className="pb-4 fade-in safe-area-top">
       <div className="mb-6">
         <h1 className="text-3xl font-bold" style={{ color: 'var(--color-text)' }}>Files & Bills</h1>
         <p className="text-sm mt-1" style={{ color: 'var(--color-text-secondary)' }}>
