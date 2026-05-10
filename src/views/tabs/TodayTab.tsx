@@ -82,41 +82,75 @@ export default function TodayTab() {
 
     addLog(text, selectedTag);
 
+    // AI classification: parse free text into structured entries
     if (hasGeminiApiKey()) {
       setIsClassifying(true);
       try {
         const result = await GeminiService.classifyLog(text);
-        const data = result.extractedData || {};
         const notes: string[] = [];
 
-        if (result.type === 'sleep' && data.hours) {
-          addSleep(Number(data.hours), data.quality || 'good', data.bedTime, data.wakeTime);
-          notes.push(`✅ Added sleep: ${data.hours}h`);
-        }
-        if (result.type === 'expense' && data.amount) {
-          addExpense(Number(data.amount), data.category || 'Other', text);
-          notes.push(`✅ Added expense: ₹${data.amount}`);
-        }
-        if (result.type === 'exercise' && data.exercises) {
-          const exList = Array.isArray(data.exercises) ? data.exercises : [];
-          const summary = exList.map((ex: any) => `${ex.name} ${ex.sets || ''}x${ex.reps || ''}`).join(', ');
-          addLog(`🏋️ Exercise: ${summary}${data.durationMinutes ? ' · ' + data.durationMinutes + ' min' : ''}${data.caloriesBurned ? ' · ~' + data.caloriesBurned + ' cal burned' : ''}`, 'exercise');
-          if (data.caloriesBurned) notes.push(`✅ Exercise logged: ~${data.caloriesBurned} cal burned`);
-          else notes.push(`✅ Exercise logged`);
-        }
-        if (result.type === 'food' && data.items) {
-          const items = Array.isArray(data.items) ? data.items : [];
-          items.forEach((item: any) => {
-            addFood(item.name, item.portion || '1 serving', item.calories ? Number(item.calories) : undefined, data.mealType || 'snack');
-          });
-          if (items.length > 0) notes.push(`✅ Added ${items.length} food item(s)`);
+        for (const entry of result.entries) {
+          switch (entry.type) {
+            case 'sleep':
+              if (entry.sleepHours && entry.sleepHours > 0) {
+                addSleep(entry.sleepHours, (entry.sleepQuality as any) || 'good', entry.bedTime, entry.wakeTime);
+                notes.push(`😴 Sleep: ${entry.sleepHours}h${entry.bedTime ? ' (' + entry.bedTime + '→' + entry.wakeTime + ')' : ''}`);
+              }
+              break;
+
+            case 'activity':
+              if (entry.steps && entry.steps > 0) {
+                addActivity(entry.steps, entry.distanceKm);
+                notes.push(`🚶 ${entry.steps.toLocaleString()} steps${entry.distanceKm ? ' · ' + entry.distanceKm + ' km' : ''}`);
+              }
+              break;
+
+            case 'exercise':
+              if (entry.exercises && entry.exercises.length > 0) {
+                const detail = entry.exercises.map(ex => `${ex.name} ${ex.sets ? ex.sets + 'x' : ''}${ex.reps || ''}`).join(', ');
+                const logLine = `🏋️ ${detail}${entry.durationMinutes ? ' · ' + entry.durationMinutes + ' min' : ''}${entry.caloriesBurned ? ' · ~' + entry.caloriesBurned + ' cal' : ''}`;
+                addLog(logLine, 'exercise');
+                notes.push(`💪 Exercise: ${entry.exercises.length} exercises${entry.caloriesBurned ? ', ~' + entry.caloriesBurned + ' cal burned' : ''}`);
+              } else if (entry.exerciseDetails) {
+                addLog(`🏋️ ${entry.exerciseDetails}${entry.caloriesBurned ? ' · ~' + entry.caloriesBurned + ' cal' : ''}`, 'exercise');
+                notes.push(`💪 Exercise logged`);
+              }
+              break;
+
+            case 'expense':
+              if (entry.amount && entry.amount > 0) {
+                addExpense(entry.amount, entry.expenseCategory || 'Other', text);
+                notes.push(`💰 Expense: ₹${entry.amount}`);
+              }
+              break;
+
+            case 'food':
+              if (entry.foodItems && entry.foodItems.length > 0) {
+                entry.foodItems.forEach(item => {
+                  addFood(
+                    item.name,
+                    item.portion || '1 serving',
+                    item.calories > 0 ? item.calories : undefined,
+                    (entry.mealType as any) || 'snack',
+                    item.protein, item.carbs, item.fat
+                  );
+                });
+                const totalCal = entry.totalCalories || entry.foodItems.reduce((s, i) => s + (i.calories || 0), 0);
+                notes.push(`🍽️ ${entry.foodItems.length} item(s), ~${totalCal} cal`);
+                if (entry.nutritionSummary) notes.push(`📊 ${entry.nutritionSummary}`);
+              }
+              break;
+          }
         }
 
-        if (notes.length > 0) setClassifyResult(notes.join(' | '));
-        else if (result.confidence > 0.6) setClassifyResult(`Classified as: ${result.type}`);
+        if (notes.length > 0) {
+          setClassifyResult(notes.join(' · '));
+        } else if (result.summary) {
+          setClassifyResult(result.summary);
+        }
       } catch { /* log already saved */ }
       setIsClassifying(false);
-      setTimeout(() => setClassifyResult(''), 5000);
+      setTimeout(() => setClassifyResult(''), 8000);
     }
   };
 
@@ -240,7 +274,7 @@ export default function TodayTab() {
             </button>
           </div>
         </div>
-        <input ref={fileInputRef} type="file" accept="image/*,.pdf" multiple className="hidden" onChange={handleFileUpload} />
+        <input ref={fileInputRef} type="file" accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt" multiple className="hidden" onChange={handleFileUpload} />
         <div className="flex gap-2 flex-wrap">
           {(Object.keys(TAG_CONFIG) as EntryTag[]).slice(0, 6).map(tag => (
             <button key={tag} className={`tag-chip ${selectedTag === tag ? 'selected' : ''}`} onClick={() => setSelectedTag(tag)}>

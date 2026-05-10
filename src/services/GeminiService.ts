@@ -35,7 +35,7 @@ async function callGemini(prompt: string): Promise<string> {
       const t = setTimeout(() => ctrl.abort(), 25000);
       const res = await fetch(`${BASE}/models/${model}:generateContent?key=${apiKey}`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: ctrl.signal,
-        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.7, maxOutputTokens: 2048 } }),
+        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.4, maxOutputTokens: 2048 } }),
       });
       clearTimeout(t);
       const data = await res.json();
@@ -72,39 +72,86 @@ async function callGeminiVision(prompt: string, imageBase64: string): Promise<st
   throw new Error('OCR failed');
 }
 
+/** Result from classifyLog — can contain MULTIPLE structured entries */
+export interface ClassifyResult {
+  entries: ClassifiedEntry[];
+  summary: string;
+}
+
+export interface ClassifiedEntry {
+  type: 'sleep' | 'exercise' | 'expense' | 'food' | 'activity' | 'general';
+  // Sleep
+  sleepHours?: number;
+  sleepQuality?: string;
+  bedTime?: string;
+  wakeTime?: string;
+  // Exercise
+  exerciseDetails?: string;
+  exercises?: { name: string; sets?: number; reps?: number; weight?: string }[];
+  durationMinutes?: number;
+  caloriesBurned?: number;
+  // Activity/Steps
+  steps?: number;
+  distanceKm?: number;
+  // Expense
+  amount?: number;
+  expenseCategory?: string;
+  // Food
+  foodItems?: { name: string; portion: string; calories: number; protein?: number; carbs?: number; fat?: number; fiber?: number }[];
+  mealType?: string;
+  totalCalories?: number;
+  nutritionSummary?: string;
+  // Date
+  date?: string; // YYYY-MM-DD if mentioned
+}
+
 export const GeminiService = {
   /**
-   * Classify free-text log and extract structured data.
-   * This is the KEY function — it parses natural language into structured entries.
+   * THE CORE FUNCTION: Parse natural language into structured life data.
+   * Can return MULTIPLE entries from a single log.
+   * E.g. "walked 5km (7000 steps) then ate rice" → activity entry + food entry
    */
-  async classifyLog(text: string): Promise<{
-    type: string; confidence: number;
-    extractedData: Record<string, any>;
-  }> {
+  async classifyLog(text: string): Promise<ClassifyResult> {
     if (!hasGeminiApiKey()) return mockClassify(text);
     try {
-      const prompt = `You are a personal life log classifier. Analyze this entry and extract ALL structured data.
+      const todayStr = new Date().toISOString().split('T')[0];
+      const prompt = `You are a personal life data parser. Parse this log entry into structured data.
+IMPORTANT: A single entry can contain MULTIPLE activities. Extract ALL of them.
 
 Entry: "${text}"
+Today's date: ${todayStr}
 
 Return ONLY valid JSON (no markdown, no backticks):
 {
-  "type": "sleep|exercise|expense|food|general|note",
-  "confidence": 0.0-1.0,
-  "extractedData": {
-    // For sleep: "hours" (number), "bedTime" (string like "11:00 PM"), "wakeTime" (string like "7:00 AM"), "quality" ("good"/"fair"/"poor"/"excellent")
-    // For exercise: "exercises" (array of {"name":"pushups","sets":3,"reps":10}), "durationMinutes" (number), "caloriesBurned" (estimated number)
-    // For expense: "amount" (number), "currency" ("INR"), "category" (string)
-    // For food: "items" (array of {"name":"rice","portion":"1 cup","calories":200}), "mealType" ("breakfast"/"lunch"/"dinner"/"snack")
-  }
+  "entries": [
+    // Each distinct activity gets its own entry. Examples:
+    // For sleep: {"type":"sleep","sleepHours":6.5,"sleepQuality":"good","bedTime":"4:30 AM","wakeTime":"11:00 AM"}
+    // For steps/walking: {"type":"activity","steps":5022,"distanceKm":3.71,"date":"2026-05-08"}
+    // For exercise: {"type":"exercise","exercises":[{"name":"pushups","sets":3,"reps":10},{"name":"crunches","sets":3,"reps":15}],"durationMinutes":45,"caloriesBurned":320,"exerciseDetails":"pushups 3x10, crunches 3x15"}
+    // For expense: {"type":"expense","amount":300,"expenseCategory":"Transportation"}
+    // For food: {"type":"food","mealType":"breakfast","totalCalories":650,"nutritionSummary":"High protein breakfast with complex carbs","foodItems":[{"name":"Kala chana","portion":"1 bowl","calories":250,"protein":15,"carbs":30,"fat":5},{"name":"Halwa","portion":"1 serving","calories":300,"protein":3,"carbs":45,"fat":12}]}
+  ],
+  "summary": "Brief one-line summary of what was logged"
 }
 
-Be precise with numbers. Calculate sleep hours from bed/wake times. Estimate calories burned for exercises.`;
+RULES:
+- If the user mentions a past date like "on 8th May", set "date":"2026-05-08". Otherwise omit date field.
+- For food: ALWAYS estimate calories, protein, carbs, fat per item even if user didn't provide them. Use standard Indian food nutrition data.
+- For food: Provide nutritionSummary analyzing the meal (e.g. "High carb meal, moderate protein, consider adding vegetables")
+- For exercise: Estimate calories burned based on exercise type, sets, reps, and duration.
+- For walking/running with steps: Use type "activity" with steps and distanceKm, NOT "exercise".
+- For gym exercises (pushups, crunches, etc.): Use type "exercise" with exercises array.
+- Calculate sleep hours precisely from bed/wake times.
+- One log can produce multiple entries. "ate breakfast then walked 3km" → food entry + activity entry.`;
+
       const response = await callGemini(prompt);
       const match = response.match(/\{[\s\S]*\}/);
       if (match) {
         const parsed = JSON.parse(match[0]);
-        return { type: parsed.type || 'general', confidence: parsed.confidence || 0.5, extractedData: parsed.extractedData || {} };
+        return {
+          entries: Array.isArray(parsed.entries) ? parsed.entries : [],
+          summary: parsed.summary || '',
+        };
       }
     } catch (e) { console.error('classify error:', e); }
     return mockClassify(text);
@@ -114,9 +161,20 @@ Be precise with numbers. Calculate sleep hours from bed/wake times. Estimate cal
     if (!hasGeminiApiKey() || entries.length === 0) return mockFoodAnalysis(entries);
     try {
       const list = entries.map(e => `${e.name} (${e.portionSize})${e.calories ? ` ${e.calories}cal` : ''}`).join(', ');
-      const prompt = `Analyze this food intake as a nutritionist. Return ONLY JSON:
-{"estimatedCalories":0,"summary":"","suggestions":[]}
-Items: ${list}`;
+      const prompt = `You are a nutritionist. Analyze this day's food intake:
+${list}
+
+Return ONLY JSON:
+{
+  "estimatedCalories": <total>,
+  "protein": <total grams>,
+  "carbs": <total grams>,
+  "fat": <total grams>,
+  "summary": "Brief nutritional assessment",
+  "suggestions": ["2-3 specific suggestions for remaining meals today"]
+}
+
+Use standard Indian food nutrition data. Be specific about what to eat next.`;
       const response = await callGemini(prompt);
       const match = response.match(/\{[\s\S]*\}/);
       if (match) return JSON.parse(match[0]);
@@ -127,8 +185,8 @@ Items: ${list}`;
   async search(query: string, context = ''): Promise<string> {
     if (!hasGeminiApiKey()) return mockSearch(query);
     try {
-      const prompt = `You are LifeLog AI — a personal health, fitness, and life tracking assistant. 
-Answer the user's question using their data context. Be specific, actionable, and encouraging.
+      const prompt = `You are LifeLog AI — a personal health, fitness, and life tracking assistant.
+Answer based on the user's actual data. Be specific, actionable, encouraging.
 ${context ? `\nUser's data:\n${context}\n` : ''}
 Question: ${query}`;
       return await callGemini(prompt);
@@ -140,16 +198,12 @@ Question: ${query}`;
   async extractText(imageBase64: string): Promise<string> {
     if (!hasGeminiApiKey()) return 'OCR requires a Gemini API key.';
     try {
-      return await callGeminiVision('Extract all text from this image. If it is a receipt/bill, identify total amount, date, and vendor name.', imageBase64);
+      return await callGeminiVision('Extract all text from this image. If it is a receipt/bill, identify total amount, date, vendor name, and list all line items with prices.', imageBase64);
     } catch (e) {
       return `OCR failed: ${e instanceof Error ? e.message : 'error'}`;
     }
   },
 
-  /**
-   * Generate professional health & productivity insights.
-   * Acts like a health coach analyzing the user's day.
-   */
   async generateInsights(data: {
     sleepHours: number; steps: number; expenses: number;
     meals: number; calories: number;
@@ -157,24 +211,26 @@ Question: ${query}`;
   }): Promise<string[]> {
     if (!hasGeminiApiKey()) return mockInsights(data);
     try {
-      const prompt = `You are a professional health coach analyzing a user's daily data. Give 3-4 short, specific, actionable insights.
+      const prompt = `You are a professional health coach. Analyze this user's day and give 3-4 actionable insights.
 
 Today's data:
-- Sleep: ${data.sleepHours}h
-- Steps: ${data.steps}
-- Meals: ${data.meals}, Calories: ${data.calories}
-- Spending: ₹${data.expenses}
-${data.exerciseLog ? `- Exercise: ${data.exerciseLog}` : '- Exercise: none logged'}
+- Sleep: ${data.sleepHours > 0 ? data.sleepHours + 'h' : 'not logged'}
+- Steps: ${data.steps > 0 ? data.steps.toLocaleString() : 'not logged'}
+- Meals: ${data.meals > 0 ? data.meals + ' meals, ' + data.calories + ' cal' : 'not logged'}
+- Spending: ${data.expenses > 0 ? '₹' + data.expenses : 'none'}
+${data.exerciseLog ? `- Exercise: ${data.exerciseLog}` : '- Exercise: not logged'}
 ${data.foodLog ? `- Food details: ${data.foodLog}` : ''}
 
-Rules:
-- If data is 0 or empty, say "Not logged yet" instead of giving negative advice
-- Estimate calories burned from exercise if logged
-- Suggest what to eat next based on what was already eaten
-- Be encouraging, not harsh
-- Each insight should be 1-2 sentences max
+RULES:
+- If something is "not logged", say "Not tracked yet — log it for better insights" 
+- Do NOT give negative/harsh advice for missing data
+- For exercise: estimate total calories burned
+- For food: assess if diet is balanced, suggest what to eat next
+- For sleep: assess quality based on hours
+- Each insight 1-2 sentences, with emoji prefix
+- Be encouraging and specific
 
-Return ONLY a JSON array of strings. No markdown.`;
+Return ONLY a JSON array of strings.`;
       const response = await callGemini(prompt);
       const match = response.match(/\[[\s\S]*\]/);
       if (match) return JSON.parse(match[0]);
@@ -183,13 +239,16 @@ Return ONLY a JSON array of strings. No markdown.`;
   },
 };
 
-function mockClassify(text: string) {
+function mockClassify(text: string): ClassifyResult {
   const l = text.toLowerCase();
-  if (/spent|paid|₹|rs\s?\d|bought|cost|\d+\s*rupee/.test(l)) return { type: 'expense', confidence: 0.85, extractedData: {} };
-  if (/ate|food|meal|breakfast|lunch|dinner|snack|drank|coffee|tea/.test(l)) return { type: 'food', confidence: 0.8, extractedData: {} };
-  if (/slept|sleep|bed|woke|nap/.test(l)) return { type: 'sleep', confidence: 0.9, extractedData: {} };
-  if (/walk|run|exercise|steps|gym|pushup|crunch|yoga|workout|jog/.test(l)) return { type: 'exercise', confidence: 0.88, extractedData: {} };
-  return { type: 'general', confidence: 0.5, extractedData: {} };
+  const entries: ClassifiedEntry[] = [];
+  if (/slept|sleep|bed|woke|nap/.test(l)) entries.push({ type: 'sleep' });
+  if (/spent|paid|₹|rs\s?\d|bought|cost|\d+\s*rupee/.test(l)) entries.push({ type: 'expense' });
+  if (/ate|food|meal|breakfast|lunch|dinner|snack|drank|coffee|tea|chana|rice|roti/.test(l)) entries.push({ type: 'food' });
+  if (/walk|run|jog|km|steps/.test(l)) entries.push({ type: 'activity' });
+  if (/exercise|pushup|crunch|yoga|workout|situp|plank|squat|gym|sets|reps/.test(l)) entries.push({ type: 'exercise' });
+  if (entries.length === 0) entries.push({ type: 'general' });
+  return { entries, summary: text.slice(0, 80) };
 }
 
 function mockFoodAnalysis(entries: FoodEntry[]) {
@@ -198,20 +257,19 @@ function mockFoodAnalysis(entries: FoodEntry[]) {
 }
 
 function mockSearch(q: string): string {
-  const l = q.toLowerCase();
-  if (/expense|spent|money/.test(l)) return 'Track expenses in Today tab. See Dashboard for breakdown.';
-  if (/sleep/.test(l)) return 'Log sleep daily for patterns. Aim for 7-9 hours.';
-  if (/food|diet|cal/.test(l)) return 'Use Food quick-add for meals. Add calories for insights.';
-  return 'I help with expenses, sleep, food, and fitness. Ask me anything about your data!';
+  if (/expense|spent|money/.test(q.toLowerCase())) return 'Track expenses in Today tab. See Dashboard for breakdown.';
+  if (/sleep/.test(q.toLowerCase())) return 'Log sleep daily. Aim for 7-9 hours.';
+  if (/food|diet|cal/.test(q.toLowerCase())) return 'Use Food quick-add for meals.';
+  return 'Ask me about expenses, sleep, food, or fitness!';
 }
 
 function mockInsights(d: { sleepHours: number; steps: number; expenses: number; meals: number; calories: number }): string[] {
   const r: string[] = [];
-  if (d.sleepHours > 0) r.push(d.sleepHours >= 7 ? `✅ ${d.sleepHours}h sleep — well rested!` : `💤 ${d.sleepHours}h sleep — try for 7-9h tonight.`);
-  else r.push('😴 Sleep not logged yet. Add it to track your rest.');
-  if (d.steps > 0) r.push(d.steps >= 10000 ? `🎉 ${d.steps.toLocaleString()} steps — goal hit!` : `🚶 ${d.steps.toLocaleString()} steps. ${(10000 - d.steps).toLocaleString()} to go!`);
-  if (d.meals > 0) r.push(`🍽️ ${d.meals} meals, ~${d.calories} cal. ${d.calories < 1500 ? 'Might need more fuel.' : 'Looking good!'}`);
-  if (d.expenses > 0) r.push(`💰 ₹${d.expenses.toLocaleString('en-IN')} spent today.`);
-  if (r.length === 0) r.push('📝 Start logging to get personalized insights!');
+  if (d.sleepHours > 0) r.push(d.sleepHours >= 7 ? `✅ ${d.sleepHours}h sleep — well rested!` : `💤 ${d.sleepHours}h — aim for 7-9h.`);
+  else r.push('😴 Sleep not tracked yet — log it!');
+  if (d.steps > 0) r.push(d.steps >= 10000 ? `🎉 ${d.steps.toLocaleString()} steps!` : `🚶 ${d.steps.toLocaleString()} steps. ${(10000 - d.steps).toLocaleString()} to 10k.`);
+  if (d.meals > 0) r.push(`🍽️ ${d.meals} meals, ~${d.calories} cal.`);
+  if (d.expenses > 0) r.push(`💰 ₹${d.expenses.toLocaleString('en-IN')} spent.`);
+  if (r.length === 0) r.push('📝 Start logging to get insights!');
   return r;
 }
