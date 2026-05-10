@@ -19,7 +19,7 @@ import {
 import type { Reminder } from '../../models/types';
 
 export default function RemindersTab() {
-  const { state, addReminder, dispatch } = useApp();
+  const { state, addReminder, toggleReminder, deleteReminder } = useApp();
   const [showForm, setShowForm] = useState(false);
   const [notifPermission, setNotifPermission] = useState(NotificationService.getPermissionStatus());
 
@@ -163,7 +163,7 @@ export default function RemindersTab() {
       ) : (
         <div className="space-y-2 mb-6">
           {upcoming.map(r => (
-            <ReminderCard key={r.id} reminder={r} dispatch={dispatch} />
+            <ReminderCard key={r.id} reminder={r} onToggle={() => toggleReminder(r.id)} onDelete={() => deleteReminder(r.id)} />
           ))}
         </div>
       )}
@@ -176,7 +176,7 @@ export default function RemindersTab() {
           </h2>
           <div className="space-y-2 opacity-60">
             {past.slice(0, 5).map(r => (
-              <ReminderCard key={r.id} reminder={r} dispatch={dispatch} />
+              <ReminderCard key={r.id} reminder={r} onToggle={() => toggleReminder(r.id)} onDelete={() => deleteReminder(r.id)} />
             ))}
           </div>
         </>
@@ -185,7 +185,7 @@ export default function RemindersTab() {
   );
 }
 
-function ReminderCard({ reminder: r, dispatch }: { reminder: Reminder; dispatch: React.Dispatch<any> }) {
+function ReminderCard({ reminder: r, onToggle, onDelete }: { reminder: Reminder; onToggle: () => void; onDelete: () => void }) {
   return (
     <div className="card p-3 flex items-start gap-3">
       <button
@@ -194,7 +194,7 @@ function ReminderCard({ reminder: r, dispatch }: { reminder: Reminder; dispatch:
           borderColor: r.isCompleted ? 'var(--color-success)' : 'var(--color-border)',
           background: r.isCompleted ? 'var(--color-success)' : 'transparent',
         }}
-        onClick={() => dispatch({ type: 'TOGGLE_REMINDER', id: r.id })}
+        onClick={onToggle}
         aria-label={r.isCompleted ? 'Mark incomplete' : 'Mark complete'}
       >
         {r.isCompleted && <Check className="w-3 h-3 text-white" />}
@@ -225,7 +225,7 @@ function ReminderCard({ reminder: r, dispatch }: { reminder: Reminder; dispatch:
       <button
         className="p-1.5 rounded-lg transition-all"
         style={{ color: 'var(--color-text-tertiary)' }}
-        onClick={() => dispatch({ type: 'DELETE_REMINDER', id: r.id })}
+        onClick={onDelete}
         aria-label="Delete reminder"
       >
         <Trash2 className="w-4 h-4" />

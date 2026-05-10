@@ -8,7 +8,7 @@
  * - Safe area for Dynamic Island
  */
 
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState, useEffect, useRef } from 'react';
 import { useApp } from '../../store/AppContext';
 import { formatINR } from '../../models/types';
 import { GeminiService, hasGeminiApiKey } from '../../services/GeminiService';
@@ -27,7 +27,7 @@ export default function DashboardTab() {
   const [aiInsights, setAiInsights] = useState<string[]>([]);
   const [loadingInsights, setLoadingInsights] = useState(false);
 
-  // Calculate stats
+  // Calculate stats — depend on SPECIFIC arrays, not entire state
   const stats = useMemo(() => {
     const expToday = state.expenses.filter(e => e.createdAt.startsWith(today));
     const expWeek = state.expenses.filter(e => isAfter(new Date(e.createdAt), weekStart));
@@ -52,31 +52,31 @@ export default function DashboardTab() {
       energy: healthToday.length > 0 ? healthToday[0].energyLevel : null,
       water: healthToday.length > 0 ? healthToday[0].waterIntake : 0,
     };
-  }, [state, today, weekStart]);
+  }, [state.expenses, state.foodEntries, state.sleepEntries, state.activities, state.healthMetrics, state.dailyLogs, today, weekStart]);
 
-  // Load AI insights
+  // Load AI insights ONCE when tab mounts, not on every stat change
+  const aiLoadedRef = useRef(false);
   useEffect(() => {
-    async function loadInsights() {
-      if (!hasGeminiApiKey()) return;
-      
-      setLoadingInsights(true);
-      try {
-        const insights = await GeminiService.generateInsights({
-          sleepHours: stats.sleepToday,
-          steps: stats.stepsToday,
-          expenses: stats.expensesToday,
-          meals: stats.mealsToday,
-          calories: stats.caloriesToday,
-        });
-        setAiInsights(insights);
-      } catch (error) {
-        console.error('Failed to load insights:', error);
-      }
-      setLoadingInsights(false);
-    }
-    
-    loadInsights();
-  }, [stats]);
+    if (aiLoadedRef.current || !hasGeminiApiKey()) return;
+    aiLoadedRef.current = true;
+
+    let cancelled = false;
+    setLoadingInsights(true);
+    GeminiService.generateInsights({
+      sleepHours: stats.sleepToday,
+      steps: stats.stepsToday,
+      expenses: stats.expensesToday,
+      meals: stats.mealsToday,
+      calories: stats.caloriesToday,
+    }).then(insights => {
+      if (!cancelled) setAiInsights(insights);
+    }).catch(err => {
+      console.warn('AI insights error:', err);
+    }).finally(() => {
+      if (!cancelled) setLoadingInsights(false);
+    });
+    return () => { cancelled = true; };
+  }, []); // intentionally empty — load once
 
   // Sleep data for chart (last 7 days)
   const sleepChartData = useMemo(() => {

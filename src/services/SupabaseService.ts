@@ -570,41 +570,4 @@ export const SupabaseDB = {
       activityTimeline,
     };
   },
-
-  // ============ PROFILES ============
-
-  async saveProfile(userId: string, data: { displayName?: string, avatarUrl?: string }) {
-    const client = getSupabaseClient();
-    if (!client) return;
-    
-    const { error } = await client.from('profiles').upsert({
-      id: userId,
-      display_name: data.displayName,
-      avatar_url: data.avatarUrl,
-      updated_at: new Date().toISOString(),
-    });
-    
-    if (error) console.error('Error saving profile:', error);
-  },
-
-  async getProfile(userId: string) {
-    const client = getSupabaseClient();
-    if (!client) return null;
-    
-    const { data, error } = await client
-      .from('profiles')
-      .select('*')
-      .eq('id', userId)
-      .maybeSingle();
-      
-    if (error) {
-      console.error('Error fetching profile:', error);
-      return null;
-    }
-    
-    return data ? {
-      displayName: data.display_name,
-      avatarUrl: data.avatar_url,
-    } : null;
-  },
 };

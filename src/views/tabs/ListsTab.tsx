@@ -19,7 +19,7 @@ import {
 type ListType = ListItem['listType'];
 
 export default function ListsTab() {
-  const { state, addListItem, dispatch } = useApp();
+  const { state, addListItem, deleteListItem } = useApp();
   const [selectedList, setSelectedList] = useState<ListType>('movie');
   const [showAddForm, setShowAddForm] = useState(false);
 
@@ -71,7 +71,7 @@ export default function ListsTab() {
 
   const handleDelete = (id: string) => {
     if (confirm('Delete this item?')) {
-      dispatch({ type: 'DELETE_LIST_ITEM', id });
+      deleteListItem(id);
     }
   };
 
