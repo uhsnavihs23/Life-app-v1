@@ -167,9 +167,12 @@ const AppContext = createContext<AppContextValue | null>(null);
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initialState);
+  const hasFetched = useRef(false);
 
+  // Helper to fetch all data from Supabase
   const fetchAllData = useCallback(async (userId: string) => {
-    if (!isSupabaseConfigured()) return;
+    if (!isSupabaseConfigured() || hasFetched.current) return;
+    hasFetched.current = true;
 
     try {
       const tables = [
@@ -214,7 +217,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch (err) {
       console.error('Error fetching Supabase data:', err);
     }
-  }, [state.user]);
+  }, []);
 
   useEffect(() => {
     const saved = StorageService.load<Partial<AppState>>('app_state');
@@ -248,7 +251,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [state.isLoggedIn, state.user]);
 
-  const addTimelineEntry = useCallback((action: string, category: ActivityTimeline['category'], details: string, metadata?: Record<string, unknown>) => {
+  const addTimelineEntry = useCallback(async (action: string, category: ActivityTimeline['category'], details: string, metadata?: Record<string, unknown>) => {
     const entry: ActivityTimeline = {
       id: uuid(),
       userId: state.user?.id || '',
@@ -259,10 +262,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       createdAt: new Date().toISOString(),
     };
     dispatch({ type: 'ADD_TIMELINE', entry });
-    saveToSupabase('activity_timeline', entry);
+    await saveToSupabase('activity_timeline', entry);
   }, [state.user, saveToSupabase]);
 
-  const addLog = useCallback((text: string, tag: EntryTag) => {
+  const addLog = useCallback(async (text: string, tag: EntryTag) => {
     const entry: DailyLogEntry = {
       id: uuid(),
       userId: state.user?.id || '',
@@ -270,12 +273,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       tag,
       createdAt: new Date().toISOString(),
     };
+    
+    // Optimistic update
     dispatch({ type: 'ADD_LOG', entry });
-    saveToSupabase('daily_logs', entry);
-    addTimelineEntry('Added log entry', tag, text);
+    
+    // Persist to cloud
+    await saveToSupabase('daily_logs', entry);
+    await addTimelineEntry('Added log entry', tag, text);
   }, [state.user, addTimelineEntry, saveToSupabase]);
 
-  const addExpense = useCallback((amount: number, category: string, note: string) => {
+  const addExpense = useCallback(async (amount: number, category: string, note: string) => {
     const entry: ExpenseEntry = {
       id: uuid(),
       userId: state.user?.id || '',
@@ -285,12 +292,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       note,
       createdAt: new Date().toISOString(),
     };
+    
+    // Optimistic update
     dispatch({ type: 'ADD_EXPENSE', entry });
-    saveToSupabase('expenses', entry);
-    addTimelineEntry('Added expense', 'expense', '₹' + amount + ' - ' + category + (note ? ': ' + note : ''), { amount, category });
+    
+    // Persist to cloud
+    await saveToSupabase('expenses', entry);
+    await addTimelineEntry('Added expense', 'expense', '₹' + amount + ' - ' + category + (note ? ': ' + note : ''), { amount, category });
   }, [state.user, addTimelineEntry, saveToSupabase]);
 
-  const addFood = useCallback((name: string, portionSize: string, calories: number | undefined, mealType: FoodEntry['mealType'], protein?: number, carbs?: number, fat?: number) => {
+  const addFood = useCallback(async (name: string, portionSize: string, calories: number | undefined, mealType: FoodEntry['mealType'], protein?: number, carbs?: number, fat?: number) => {
     const entry: FoodEntry = {
       id: uuid(),
       userId: state.user?.id || '',
@@ -304,11 +315,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       createdAt: new Date().toISOString(),
     };
     dispatch({ type: 'ADD_FOOD', entry });
-    saveToSupabase('food_entries', entry);
-    addTimelineEntry('Added food', 'food', name + ' (' + portionSize + ')' + (calories ? ' - ' + calories + ' cal' : ''), { name, calories, mealType });
+    await saveToSupabase('food_entries', entry);
+    await addTimelineEntry('Added food', 'food', name + ' (' + portionSize + ')' + (calories ? ' - ' + calories + ' cal' : ''), { name, calories, mealType });
   }, [state.user, addTimelineEntry, saveToSupabase]);
 
-  const addSleep = useCallback((hours: number, quality: SleepEntry['quality'], bedTime?: string, wakeTime?: string) => {
+  const addSleep = useCallback(async (hours: number, quality: SleepEntry['quality'], bedTime?: string, wakeTime?: string) => {
     const entry: SleepEntry = {
       id: uuid(),
       userId: state.user?.id || '',
@@ -320,11 +331,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       createdAt: new Date().toISOString(),
     };
     dispatch({ type: 'ADD_SLEEP', entry });
-    saveToSupabase('sleep_entries', entry);
-    addTimelineEntry('Added sleep record', 'sleep', hours + 'h - ' + quality + ' quality', { hours, quality });
+    await saveToSupabase('sleep_entries', entry);
+    await addTimelineEntry('Added sleep record', 'sleep', hours + 'h - ' + quality + ' quality', { hours, quality });
   }, [state.user, addTimelineEntry, saveToSupabase]);
 
-  const addActivity = useCallback((steps: number, distanceKm?: number, activeMinutes?: number, caloriesBurned?: number) => {
+  const addActivity = useCallback(async (steps: number, distanceKm?: number, activeMinutes?: number, caloriesBurned?: number) => {
     const entry: ActivityEntry = {
       id: uuid(),
       userId: state.user?.id || '',
@@ -337,8 +348,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       createdAt: new Date().toISOString(),
     };
     dispatch({ type: 'ADD_ACTIVITY', entry });
-    saveToSupabase('activities', entry);
-    addTimelineEntry('Added activity', 'exercise', steps.toLocaleString() + ' steps' + (distanceKm ? ' - ' + distanceKm + ' km' : ''), { steps, distanceKm });
+    await saveToSupabase('activities', entry);
+    await addTimelineEntry('Added activity', 'exercise', steps.toLocaleString() + ' steps' + (distanceKm ? ' - ' + distanceKm + ' km' : ''), { steps, distanceKm });
   }, [state.user, addTimelineEntry, saveToSupabase]);
 
   const addFile = useCallback((fileName: string, fileType: 'pdf' | 'image', localUrl: string) => {
@@ -354,7 +365,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     addTimelineEntry('Uploaded file', 'file', fileName, { fileType });
   }, [state.user, addTimelineEntry]);
 
-  const addReminder = useCallback((title: string, description: string, dateTime: string, isRecurring: boolean, recurrenceInterval?: Reminder['recurrenceInterval']) => {
+  const addReminder = useCallback(async (title: string, description: string, dateTime: string, isRecurring: boolean, recurrenceInterval?: Reminder['recurrenceInterval']) => {
     const reminder: Reminder = {
       id: uuid(),
       userId: state.user?.id || '',
@@ -367,8 +378,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       createdAt: new Date().toISOString(),
     };
     dispatch({ type: 'ADD_REMINDER', reminder });
-    saveToSupabase('reminders', reminder);
-    addTimelineEntry('Created reminder', 'reminder', title, { dateTime, isRecurring });
+    await saveToSupabase('reminders', reminder);
+    await addTimelineEntry('Created reminder', 'reminder', title, { dateTime, isRecurring });
   }, [state.user, addTimelineEntry, saveToSupabase]);
 
   const addChatMessage = useCallback((role: ChatMessage['role'], content: string) => {
@@ -378,7 +389,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
   }, [state.user]);
 
-  const addListItem = useCallback((listType: ListItem['listType'], title: string, note?: string, rating?: number, status: ListItem['status'] = 'completed') => {
+  const addListItem = useCallback(async (listType: ListItem['listType'], title: string, note?: string, rating?: number, status: ListItem['status'] = 'completed') => {
     const item: ListItem = {
       id: uuid(),
       userId: state.user?.id || '',
@@ -391,11 +402,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       createdAt: new Date().toISOString(),
     };
     dispatch({ type: 'ADD_LIST_ITEM', item });
-    saveToSupabase('list_items', item);
-    addTimelineEntry('Added to ' + listType + ' list', 'list', title, { listType, rating });
+    await saveToSupabase('list_items', item);
+    await addTimelineEntry(`Added to ${listType} list`, 'list', title, { listType, rating });
   }, [state.user, addTimelineEntry, saveToSupabase]);
 
-  const addHealthMetrics = useCallback((data: Partial<HealthMetrics>) => {
+  const addHealthMetrics = useCallback(async (data: Partial<HealthMetrics>) => {
     const metrics: HealthMetrics = {
       id: uuid(),
       userId: state.user?.id || '',
@@ -404,30 +415,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       createdAt: new Date().toISOString(),
     };
     dispatch({ type: 'ADD_HEALTH_METRICS', metrics });
-    saveToSupabase('health_metrics', metrics);
-    addTimelineEntry('Logged health metrics', 'health', 'Mood: ' + (data.mood || 'N/A') + ', Energy: ' + (data.energyLevel || 'N/A') + '/10', data);
+    await saveToSupabase('health_metrics', metrics);
+    await addTimelineEntry('Logged health metrics', 'health', `Mood: ${data.mood || 'N/A'}, Energy: ${data.energyLevel || 'N/A'}/10`, data);
   }, [state.user, addTimelineEntry, saveToSupabase]);
+const addTimeline = useCallback(async (action: string, category: ActivityTimeline['category'], details: string, metadata?: Record<string, unknown>) => {
+  await addTimelineEntry(action, category, details, metadata);
+}, [addTimelineEntry]);
 
-  const addTimeline = useCallback((action: string, category: ActivityTimeline['category'], details: string, metadata?: Record<string, unknown>) => {
-    addTimelineEntry(action, category, details, metadata);
-  }, [addTimelineEntry]);
+const updateProfile = useCallback(async (displayName: string, email: string, avatarUrl?: string) => {
+  dispatch({ type: 'UPDATE_PROFILE', displayName, email, avatarUrl });
 
-  const updateProfile = useCallback((displayName: string, email: string, avatarUrl?: string) => {
-    dispatch({ type: 'UPDATE_PROFILE', displayName, email, avatarUrl });
-    if (state.user) {
-      const profileData = {
-        id: state.user.id,
-        displayName,
-        avatarUrl: avatarUrl || state.user.avatarUrl
-      };
-      const dbData = keysToSnake(profileData);
-      SupabaseDB.saveData('profiles', dbData).catch(err => {
-        console.error('Error saving profile to Supabase:', err);
-      });
-    }
-  }, [state.user]);
+  // Save to profiles table
+  if (state.user) {
+    const profileData = {
+      id: state.user.id,
+      displayName,
+      avatarUrl: avatarUrl || state.user.avatarUrl
+    };
 
-  return (
+    const dbData = keysToSnake(profileData);
+    await SupabaseDB.saveData('profiles', dbData);
+  }
+}, [state.user]);
     <AppContext.Provider value={{
       state, dispatch,
       addLog, addExpense, addFood, addSleep, addActivity,

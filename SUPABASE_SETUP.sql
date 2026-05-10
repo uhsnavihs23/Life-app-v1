@@ -1,6 +1,14 @@
 -- LifeLog AI - Supabase Database Schema
 -- Run this in the Supabase SQL Editor to set up your backend tables.
 
+-- 0. Profiles (User Info)
+CREATE TABLE IF NOT EXISTS profiles (
+  id UUID PRIMARY KEY REFERENCES auth.users ON DELETE CASCADE,
+  display_name TEXT,
+  avatar_url TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
 -- 1. Daily Logs
 CREATE TABLE IF NOT EXISTS daily_logs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -114,6 +122,7 @@ CREATE TABLE IF NOT EXISTS reminders (
 );
 
 -- 10. Enable Row Level Security (RLS)
+ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE daily_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE expenses ENABLE ROW LEVEL SECURITY;
 ALTER TABLE food_entries ENABLE ROW LEVEL SECURITY;
@@ -126,6 +135,9 @@ ALTER TABLE reminders ENABLE ROW LEVEL SECURITY;
 
 -- 11. Create RLS Policies
 -- This ensures users can ONLY see and modify their own data.
+
+CREATE POLICY "Users can only access their own profile" ON profiles
+  FOR ALL USING (auth.uid() = id);
 
 CREATE POLICY "Users can only access their own logs" ON daily_logs
   FOR ALL USING (auth.uid() = user_id);
