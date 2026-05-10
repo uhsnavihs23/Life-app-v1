@@ -1,13 +1,7 @@
 /**
  * AuthService - Authentication logic
  * 
- * Currently simulates login locally with a dummy user.
- * 
- * TO ADD REAL AUTH:
- * 1. Replace the `login` method with a real API call to your backend
- *    (e.g., Firebase Auth, Auth0, or a custom JWT-based API).
- * 2. Store the auth token in StorageService.
- * 3. Add `logout`, `refreshToken`, `register` methods as needed.
+ * Manages user authentication via Supabase.
  */
 
 import { v4 as uuid } from 'uuid';
@@ -50,7 +44,7 @@ export const AuthService = {
       }
     }
 
-    // Fallback/Demo mode if Supabase not configured or for development
+    // Fallback/Demo mode if Supabase not configured or failed
     console.warn('Using demo mode login - Supabase not configured or failed');
     const user: User = {
       id: uuid(),
@@ -90,6 +84,7 @@ export const AuthService = {
       await SupabaseAuth.signOut();
     }
     StorageService.remove(AUTH_KEY);
+    StorageService.remove('app_state'); // Clear state on logout to force fresh fetch on next login
   },
 
   /** Check if a user is logged in */
@@ -97,4 +92,3 @@ export const AuthService = {
     return StorageService.load<User>(AUTH_KEY) !== null;
   },
 };
-

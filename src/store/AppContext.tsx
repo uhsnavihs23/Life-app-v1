@@ -14,6 +14,7 @@ import type {
 } from '../models/types';
 import { StorageService } from '../services/StorageService';
 import { SupabaseDB, isSupabaseConfigured } from '../services/SupabaseService';
+import { keysToCamel, keysToSnake } from '../utils/naming';
 
 /** App state shape */
 interface AppState {
@@ -55,7 +56,7 @@ type Action =
   | { type: 'ADD_HEALTH_METRICS'; metrics: HealthMetrics }
   | { type: 'ADD_TIMELINE'; entry: ActivityTimeline }
   | { type: 'LOAD_STATE'; state: Partial<AppState> }
-  | { type: 'UPDATE_PROFILE'; displayName: string; email: string };
+  | { type: 'UPDATE_PROFILE'; displayName: string; email: string; avatarUrl?: string };
 
 const initialState: AppState = {
   user: null,
@@ -131,7 +132,15 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, ...action.state };
     case 'UPDATE_PROFILE':
       if (!state.user) return state;
-      return { ...state, user: { ...state.user, displayName: action.displayName, email: action.email } };
+      return { 
+        ...state, 
+        user: { 
+          ...state.user, 
+          displayName: action.displayName, 
+          email: action.email,
+          avatarUrl: action.avatarUrl || state.user.avatarUrl
+        } 
+      };
     default:
       return state;
   }
@@ -151,6 +160,7 @@ interface AppContextValue {
   addListItem: (listType: ListItem['listType'], title: string, note?: string, rating?: number, status?: ListItem['status']) => void;
   addHealthMetrics: (data: Partial<HealthMetrics>) => void;
   addTimeline: (action: string, category: ActivityTimeline['category'], details: string, metadata?: Record<string, unknown>) => void;
+  updateProfile: (displayName: string, email: string, avatarUrl?: string) => void;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -158,7 +168,6 @@ const AppContext = createContext<AppContextValue | null>(null);
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initialState);
 
-  // Helper to fetch all data from Supabase
   const fetchAllData = useCallback(async (userId: string) => {
     if (!isSupabaseConfigured()) return;
 
@@ -177,11 +186,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       const loadedState: Partial<AppState> = {};
 
+      const { data: profileData, error: profileError } = await SupabaseDB.getData('profiles', userId);
+      if (!profileError && profileData && profileData.length > 0) {
+        const profile = keysToCamel<any>(profileData[0]);
+        if (state.user) {
+          dispatch({ 
+            type: 'LOAD_STATE', 
+            state: { 
+              user: { 
+                ...state.user, 
+                displayName: profile.displayName || state.user.displayName,
+                avatarUrl: profile.avatarUrl || state.user.avatarUrl
+              } 
+            } 
+          });
+        }
+      }
+
       for (const table of tables) {
         const { data, error } = await SupabaseDB.getData(table.name, userId);
         if (!error && data) {
-          // Map snake_case to camelCase if needed, or just cast
-          (loadedState as any)[table.key] = data;
+          (loadedState as any)[table.key] = keysToCamel(data);
         }
       }
 
@@ -189,50 +214,40 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch (err) {
       console.error('Error fetching Supabase data:', err);
     }
-  }, []);
+  }, [state.user]);
 
-  // Load persisted state on mount
   useEffect(() => {
     const saved = StorageService.load<Partial<AppState>>('app_state');
     if (saved) {
       dispatch({ type: 'LOAD_STATE', state: saved });
-      
-      // If we have a user, try to fetch fresh data from Supabase
       if (saved.user?.id) {
         fetchAllData(saved.user.id);
       }
     }
   }, [fetchAllData]);
 
-  // Save state whenever it changes (local persistence)
   useEffect(() => {
     if (state.isLoggedIn) {
       StorageService.save('app_state', state);
     }
   }, [state]);
 
-  // Apply dark mode
   useEffect(() => {
     document.documentElement.classList.toggle('dark', state.darkMode);
   }, [state.darkMode]);
 
-  // Helper to save to Supabase
   const saveToSupabase = useCallback(async (table: string, data: any) => {
     if (!state.isLoggedIn || !state.user || !isSupabaseConfigured()) return;
-    
-    // Map to snake_case for Supabase if necessary
-    // For simplicity, we'll keep keys matching our types for now as per SQL script
-    const { error } = await SupabaseDB.saveData(table, {
+    const dbData = keysToSnake({
       ...data,
-      user_id: state.user.id
+      userId: state.user.id
     });
-    
+    const { error } = await SupabaseDB.saveData(table, dbData);
     if (error) {
-      console.error(`Error saving to ${table}:`, error);
+      console.error('Error saving to ' + table + ':', error);
     }
   }, [state.isLoggedIn, state.user]);
 
-  // Helper to add timeline entry
   const addTimelineEntry = useCallback((action: string, category: ActivityTimeline['category'], details: string, metadata?: Record<string, unknown>) => {
     const entry: ActivityTimeline = {
       id: uuid(),
@@ -272,7 +287,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     };
     dispatch({ type: 'ADD_EXPENSE', entry });
     saveToSupabase('expenses', entry);
-    addTimelineEntry('Added expense', 'expense', `₹${amount} - ${category}${note ? ': ' + note : ''}`, { amount, category });
+    addTimelineEntry('Added expense', 'expense', '₹' + amount + ' - ' + category + (note ? ': ' + note : ''), { amount, category });
   }, [state.user, addTimelineEntry, saveToSupabase]);
 
   const addFood = useCallback((name: string, portionSize: string, calories: number | undefined, mealType: FoodEntry['mealType'], protein?: number, carbs?: number, fat?: number) => {
@@ -289,11 +304,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       createdAt: new Date().toISOString(),
     };
     dispatch({ type: 'ADD_FOOD', entry });
-    saveToSupabase('food_entries', {
-      ...entry,
-      meal_type: mealType // match SQL
-    });
-    addTimelineEntry('Added food', 'food', `${name} (${portionSize})${calories ? ' - ' + calories + ' cal' : ''}`, { name, calories, mealType });
+    saveToSupabase('food_entries', entry);
+    addTimelineEntry('Added food', 'food', name + ' (' + portionSize + ')' + (calories ? ' - ' + calories + ' cal' : ''), { name, calories, mealType });
   }, [state.user, addTimelineEntry, saveToSupabase]);
 
   const addSleep = useCallback((hours: number, quality: SleepEntry['quality'], bedTime?: string, wakeTime?: string) => {
@@ -308,12 +320,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       createdAt: new Date().toISOString(),
     };
     dispatch({ type: 'ADD_SLEEP', entry });
-    saveToSupabase('sleep_entries', {
-      ...entry,
-      bed_time: bedTime,
-      wake_time: wakeTime
-    });
-    addTimelineEntry('Added sleep record', 'sleep', `${hours}h - ${quality} quality`, { hours, quality });
+    saveToSupabase('sleep_entries', entry);
+    addTimelineEntry('Added sleep record', 'sleep', hours + 'h - ' + quality + ' quality', { hours, quality });
   }, [state.user, addTimelineEntry, saveToSupabase]);
 
   const addActivity = useCallback((steps: number, distanceKm?: number, activeMinutes?: number, caloriesBurned?: number) => {
@@ -329,13 +337,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       createdAt: new Date().toISOString(),
     };
     dispatch({ type: 'ADD_ACTIVITY', entry });
-    saveToSupabase('activities', {
-      ...entry,
-      distance_km: distanceKm,
-      active_minutes: activeMinutes,
-      calories_burned: caloriesBurned
-    });
-    addTimelineEntry('Added activity', 'exercise', `${steps.toLocaleString()} steps${distanceKm ? ' - ' + distanceKm + ' km' : ''}`, { steps, distanceKm });
+    saveToSupabase('activities', entry);
+    addTimelineEntry('Added activity', 'exercise', steps.toLocaleString() + ' steps' + (distanceKm ? ' - ' + distanceKm + ' km' : ''), { steps, distanceKm });
   }, [state.user, addTimelineEntry, saveToSupabase]);
 
   const addFile = useCallback((fileName: string, fileType: 'pdf' | 'image', localUrl: string) => {
@@ -348,15 +351,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       createdAt: new Date().toISOString(),
     };
     dispatch({ type: 'ADD_FILE', file });
-    // Note: Usually files are stored in Supabase Storage, but here we just log the metadata
-    saveToSupabase('activity_timeline', {
-      action: 'Uploaded file',
-      category: 'file',
-      details: fileName,
-      metadata: { fileType, localUrl }
-    });
     addTimelineEntry('Uploaded file', 'file', fileName, { fileType });
-  }, [state.user, addTimelineEntry, saveToSupabase]);
+  }, [state.user, addTimelineEntry]);
 
   const addReminder = useCallback((title: string, description: string, dateTime: string, isRecurring: boolean, recurrenceInterval?: Reminder['recurrenceInterval']) => {
     const reminder: Reminder = {
@@ -371,13 +367,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       createdAt: new Date().toISOString(),
     };
     dispatch({ type: 'ADD_REMINDER', reminder });
-    saveToSupabase('reminders', {
-      ...reminder,
-      date_time: dateTime,
-      is_recurring: isRecurring,
-      recurrence_interval: recurrenceInterval,
-      is_completed: false
-    });
+    saveToSupabase('reminders', reminder);
     addTimelineEntry('Created reminder', 'reminder', title, { dateTime, isRecurring });
   }, [state.user, addTimelineEntry, saveToSupabase]);
 
@@ -401,12 +391,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       createdAt: new Date().toISOString(),
     };
     dispatch({ type: 'ADD_LIST_ITEM', item });
-    saveToSupabase('list_items', {
-      ...item,
-      list_type: listType,
-      date_added: item.dateAdded
-    });
-    addTimelineEntry(`Added to ${listType} list`, 'list', title, { listType, rating });
+    saveToSupabase('list_items', item);
+    addTimelineEntry('Added to ' + listType + ' list', 'list', title, { listType, rating });
   }, [state.user, addTimelineEntry, saveToSupabase]);
 
   const addHealthMetrics = useCallback((data: Partial<HealthMetrics>) => {
@@ -418,25 +404,35 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       createdAt: new Date().toISOString(),
     };
     dispatch({ type: 'ADD_HEALTH_METRICS', metrics });
-    saveToSupabase('health_metrics', {
-      ...metrics,
-      water_intake: metrics.waterIntake,
-      energy_level: metrics.energyLevel,
-      stress_level: metrics.stressLevel
-    });
-    addTimelineEntry('Logged health metrics', 'health', `Mood: ${data.mood || 'N/A'}, Energy: ${data.energyLevel || 'N/A'}/10`, data);
+    saveToSupabase('health_metrics', metrics);
+    addTimelineEntry('Logged health metrics', 'health', 'Mood: ' + (data.mood || 'N/A') + ', Energy: ' + (data.energyLevel || 'N/A') + '/10', data);
   }, [state.user, addTimelineEntry, saveToSupabase]);
 
   const addTimeline = useCallback((action: string, category: ActivityTimeline['category'], details: string, metadata?: Record<string, unknown>) => {
     addTimelineEntry(action, category, details, metadata);
   }, [addTimelineEntry]);
 
+  const updateProfile = useCallback((displayName: string, email: string, avatarUrl?: string) => {
+    dispatch({ type: 'UPDATE_PROFILE', displayName, email, avatarUrl });
+    if (state.user) {
+      const profileData = {
+        id: state.user.id,
+        displayName,
+        avatarUrl: avatarUrl || state.user.avatarUrl
+      };
+      const dbData = keysToSnake(profileData);
+      SupabaseDB.saveData('profiles', dbData).catch(err => {
+        console.error('Error saving profile to Supabase:', err);
+      });
+    }
+  }, [state.user]);
+
   return (
     <AppContext.Provider value={{
       state, dispatch,
       addLog, addExpense, addFood, addSleep, addActivity,
       addFile, addReminder, addChatMessage, addListItem,
-      addHealthMetrics, addTimeline,
+      addHealthMetrics, addTimeline, updateProfile
     }}>
       {children}
     </AppContext.Provider>
@@ -448,4 +444,3 @@ export function useApp() {
   if (!ctx) throw new Error('useApp must be used inside AppProvider');
   return ctx;
 }
-

@@ -107,10 +107,12 @@ export const SupabaseDB = {
     const client = getSupabaseClient();
     if (!client) return { data: null, error: new Error('Supabase not configured') };
     
+    const column = table === 'profiles' ? 'id' : 'user_id';
+    
     const { data, error } = await client
       .from(table)
       .select('*')
-      .eq('user_id', userId);
+      .eq(column, userId);
     
     return { data, error };
   },
