@@ -437,17 +437,18 @@ const updateProfile = useCallback(async (displayName: string, email: string, ava
     await SupabaseDB.saveData('profiles', dbData);
   }
 }, [state.user]);
-    <AppContext.Provider value={{
-      state, dispatch,
-      addLog, addExpense, addFood, addSleep, addActivity,
-      addFile, addReminder, addChatMessage, addListItem,
-      addHealthMetrics, addTimeline, updateProfile
-    }}>
-      {children}
-    </AppContext.Provider>
-  );
-}
 
+return (
+  <AppContext.Provider value={{
+    state, dispatch,
+    addLog, addExpense, addFood, addSleep, addActivity,
+    addFile, addReminder, addChatMessage, addListItem,
+    addHealthMetrics, addTimeline, updateProfile
+  }}>
+    {children}
+  </AppContext.Provider>
+);
+}
 export function useApp() {
   const ctx = useContext(AppContext);
   if (!ctx) throw new Error('useApp must be used inside AppProvider');
