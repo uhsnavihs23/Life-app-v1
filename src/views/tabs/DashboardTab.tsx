@@ -54,7 +54,18 @@ export default function DashboardTab() {
     };
   }, [state.expenses, state.foodEntries, state.sleepEntries, state.activities, state.healthMetrics, state.dailyLogs, today, weekStart]);
 
-  // AI insights — manual refresh only, never auto-fires
+  // Build exercise and food summaries for AI context
+  const exerciseSummary = useMemo(() => {
+    const exerciseLogs = state.dailyLogs.filter(l => l.tag === 'exercise' && l.createdAt.startsWith(today));
+    return exerciseLogs.map(l => l.text).join('; ') || '';
+  }, [state.dailyLogs, today]);
+
+  const foodSummary = useMemo(() => {
+    return state.foodEntries.filter(f => f.createdAt.startsWith(today))
+      .map(f => `${f.name} (${f.portionSize})${f.calories ? ' ' + f.calories + 'cal' : ''}`).join(', ') || '';
+  }, [state.foodEntries, today]);
+
+  // AI insights — manual refresh only
   const loadAiInsights = useCallback(() => {
     if (!hasGeminiApiKey() || loadingInsights) return;
     setLoadingInsights(true);
@@ -64,15 +75,17 @@ export default function DashboardTab() {
       expenses: stats.expensesToday,
       meals: stats.mealsToday,
       calories: stats.caloriesToday,
+      exerciseLog: exerciseSummary,
+      foodLog: foodSummary,
     }).then(insights => {
       setAiInsights(insights);
     }).catch(err => {
       console.warn('AI insights error:', err);
-      setAiInsights([`⚠️ Could not load AI insights: ${err instanceof Error ? err.message : 'error'}`]);
+      setAiInsights([`⚠️ ${err instanceof Error ? err.message : 'Could not load insights'}`]);
     }).finally(() => {
       setLoadingInsights(false);
     });
-  }, [stats, loadingInsights]);
+  }, [stats, loadingInsights, exerciseSummary, foodSummary]);
 
   // Sleep data for chart (last 7 days)
   const sleepChartData = useMemo(() => {

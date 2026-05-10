@@ -99,8 +99,8 @@ export default function LoginScreen() {
         <p className="text-white/70 text-lg">Your personal life dashboard</p>
       </div>
 
-      <div className="w-full max-w-sm bg-white/95 dark:bg-gray-900/95 rounded-3xl p-6 shadow-2xl backdrop-blur-xl fade-in"
-        style={{ animationDelay: '0.15s' }}>
+      <div className="w-full max-w-sm rounded-3xl p-6 shadow-2xl backdrop-blur-xl fade-in"
+        style={{ animationDelay: '0.15s', background: 'var(--color-surface)' }}>
         
         <h2 className="text-2xl font-bold text-center mb-1" style={{ color: 'var(--color-text)' }}>
           {isSignUp ? 'Create Account' : 'Welcome Back'}
