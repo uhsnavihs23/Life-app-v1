@@ -43,23 +43,23 @@ body {
   padding-right: env(safe-area-inset-right);
 }
 
-/* Safe area for content - adjusted for Dynamic Island */
+/* Safe area for content - reduced padding */
 .safe-area-top {
-  padding-top: env(safe-area-inset-top, 20px);
+  padding-top: env(safe-area-inset-top, 12px);
 }
 
 .safe-area-bottom {
-  padding-bottom: env(safe-area-inset-bottom, 20px);
+  padding-bottom: env(safe-area-inset-bottom, 12px);
 }
 
-/* Fix for input icons overlapping text - increased padding */
+/* Fix for input icons overlapping text */
 .input-with-icon {
-  padding-left: 48px !important;
+  padding-left: 44px !important;
 }
 
 .input-icon {
   position: absolute;
-  left: 16px;
+  left: 14px;
   top: 50%;
   transform: translateY(-50%);
   pointer-events: none;

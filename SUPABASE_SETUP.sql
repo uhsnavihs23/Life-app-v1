@@ -1,17 +1,26 @@
--- LifeLog AI - Supabase Database Schema
--- Run this in the Supabase SQL Editor to set up your backend tables.
+-- ================================================
+-- LIFELOG AI - SUPABASE DATABASE SETUP
+-- ================================================
+-- 
+-- HOW TO USE:
+-- 1. Go to your Supabase Dashboard
+-- 2. Click on "SQL Editor" in the left sidebar
+-- 3. Click "New Query"
+-- 4. Copy and paste ALL of this SQL
+-- 5. Click "Run" (or press Ctrl+Enter)
+-- 6. Wait for it to complete
+-- 7. You're done! Your database is ready.
+--
+-- ================================================
 
--- 0. Profiles (User Info)
-CREATE TABLE IF NOT EXISTS profiles (
-  id UUID PRIMARY KEY REFERENCES auth.users ON DELETE CASCADE,
-  display_name TEXT,
-  avatar_url TEXT,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
+-- Enable UUID extension
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- 1. Daily Logs
+-- ============ TABLES ============
+
+-- Daily logs (journal entries)
 CREATE TABLE IF NOT EXISTS daily_logs (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   user_id UUID REFERENCES auth.users NOT NULL,
   text TEXT NOT NULL,
   tag TEXT NOT NULL,
@@ -19,9 +28,9 @@ CREATE TABLE IF NOT EXISTS daily_logs (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- 2. Expenses (Currency: INR)
+-- Expenses (in INR)
 CREATE TABLE IF NOT EXISTS expenses (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   user_id UUID REFERENCES auth.users NOT NULL,
   amount DECIMAL NOT NULL,
   currency TEXT DEFAULT 'INR',
@@ -30,9 +39,9 @@ CREATE TABLE IF NOT EXISTS expenses (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- 3. Food Entries
+-- Food entries
 CREATE TABLE IF NOT EXISTS food_entries (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   user_id UUID REFERENCES auth.users NOT NULL,
   name TEXT NOT NULL,
   portion_size TEXT,
@@ -44,9 +53,9 @@ CREATE TABLE IF NOT EXISTS food_entries (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- 4. Sleep Entries
+-- Sleep entries
 CREATE TABLE IF NOT EXISTS sleep_entries (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   user_id UUID REFERENCES auth.users NOT NULL,
   hours DECIMAL NOT NULL,
   quality TEXT NOT NULL,
@@ -56,9 +65,9 @@ CREATE TABLE IF NOT EXISTS sleep_entries (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- 5. Activities
+-- Activities (steps, distance)
 CREATE TABLE IF NOT EXISTS activities (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   user_id UUID REFERENCES auth.users NOT NULL,
   steps INTEGER NOT NULL,
   distance_km DECIMAL,
@@ -69,9 +78,9 @@ CREATE TABLE IF NOT EXISTS activities (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- 6. List Items (Movies, Music, etc.)
+-- List items (movies, music, books, etc.)
 CREATE TABLE IF NOT EXISTS list_items (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   user_id UUID REFERENCES auth.users NOT NULL,
   list_type TEXT NOT NULL,
   title TEXT NOT NULL,
@@ -83,9 +92,9 @@ CREATE TABLE IF NOT EXISTS list_items (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- 7. Health Metrics
+-- Health metrics
 CREATE TABLE IF NOT EXISTS health_metrics (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   user_id UUID REFERENCES auth.users NOT NULL,
   date DATE NOT NULL,
   weight DECIMAL,
@@ -97,9 +106,9 @@ CREATE TABLE IF NOT EXISTS health_metrics (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- 8. Activity Timeline (Record of everything)
+-- Activity timeline (logs EVERYTHING)
 CREATE TABLE IF NOT EXISTS activity_timeline (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   user_id UUID REFERENCES auth.users NOT NULL,
   action TEXT NOT NULL,
   category TEXT NOT NULL,
@@ -108,9 +117,9 @@ CREATE TABLE IF NOT EXISTS activity_timeline (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- 9. Reminders
+-- Reminders
 CREATE TABLE IF NOT EXISTS reminders (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   user_id UUID REFERENCES auth.users NOT NULL,
   title TEXT NOT NULL,
   description TEXT,
@@ -121,8 +130,9 @@ CREATE TABLE IF NOT EXISTS reminders (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- 10. Enable Row Level Security (RLS)
-ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
+-- ============ ROW LEVEL SECURITY (RLS) ============
+-- This ensures each user can ONLY see their own data
+
 ALTER TABLE daily_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE expenses ENABLE ROW LEVEL SECURITY;
 ALTER TABLE food_entries ENABLE ROW LEVEL SECURITY;
@@ -133,35 +143,118 @@ ALTER TABLE health_metrics ENABLE ROW LEVEL SECURITY;
 ALTER TABLE activity_timeline ENABLE ROW LEVEL SECURITY;
 ALTER TABLE reminders ENABLE ROW LEVEL SECURITY;
 
--- 11. Create RLS Policies
--- This ensures users can ONLY see and modify their own data.
+-- ============ POLICIES ============
+-- Users can only access their own data
 
-CREATE POLICY "Users can only access their own profile" ON profiles
-  FOR ALL USING (auth.uid() = id);
+-- Daily Logs
+CREATE POLICY "Users can view own logs" ON daily_logs 
+  FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Users can insert own logs" ON daily_logs 
+  FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Users can update own logs" ON daily_logs 
+  FOR UPDATE USING (auth.uid() = user_id);
+CREATE POLICY "Users can delete own logs" ON daily_logs 
+  FOR DELETE USING (auth.uid() = user_id);
 
-CREATE POLICY "Users can only access their own logs" ON daily_logs
-  FOR ALL USING (auth.uid() = user_id);
+-- Expenses
+CREATE POLICY "Users can view own expenses" ON expenses 
+  FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Users can insert own expenses" ON expenses 
+  FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Users can update own expenses" ON expenses 
+  FOR UPDATE USING (auth.uid() = user_id);
+CREATE POLICY "Users can delete own expenses" ON expenses 
+  FOR DELETE USING (auth.uid() = user_id);
 
-CREATE POLICY "Users can only access their own expenses" ON expenses
-  FOR ALL USING (auth.uid() = user_id);
+-- Food entries
+CREATE POLICY "Users can view own food" ON food_entries 
+  FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Users can insert own food" ON food_entries 
+  FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Users can update own food" ON food_entries 
+  FOR UPDATE USING (auth.uid() = user_id);
+CREATE POLICY "Users can delete own food" ON food_entries 
+  FOR DELETE USING (auth.uid() = user_id);
 
-CREATE POLICY "Users can only access their own food" ON food_entries
-  FOR ALL USING (auth.uid() = user_id);
+-- Sleep entries
+CREATE POLICY "Users can view own sleep" ON sleep_entries 
+  FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Users can insert own sleep" ON sleep_entries 
+  FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Users can update own sleep" ON sleep_entries 
+  FOR UPDATE USING (auth.uid() = user_id);
+CREATE POLICY "Users can delete own sleep" ON sleep_entries 
+  FOR DELETE USING (auth.uid() = user_id);
 
-CREATE POLICY "Users can only access their own sleep" ON sleep_entries
-  FOR ALL USING (auth.uid() = user_id);
+-- Activities
+CREATE POLICY "Users can view own activities" ON activities 
+  FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Users can insert own activities" ON activities 
+  FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Users can update own activities" ON activities 
+  FOR UPDATE USING (auth.uid() = user_id);
+CREATE POLICY "Users can delete own activities" ON activities 
+  FOR DELETE USING (auth.uid() = user_id);
 
-CREATE POLICY "Users can only access their own activities" ON activities
-  FOR ALL USING (auth.uid() = user_id);
+-- List items
+CREATE POLICY "Users can view own list items" ON list_items 
+  FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Users can insert own list items" ON list_items 
+  FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Users can update own list items" ON list_items 
+  FOR UPDATE USING (auth.uid() = user_id);
+CREATE POLICY "Users can delete own list items" ON list_items 
+  FOR DELETE USING (auth.uid() = user_id);
 
-CREATE POLICY "Users can only access their own list items" ON list_items
-  FOR ALL USING (auth.uid() = user_id);
+-- Health metrics
+CREATE POLICY "Users can view own health" ON health_metrics 
+  FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Users can insert own health" ON health_metrics 
+  FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Users can update own health" ON health_metrics 
+  FOR UPDATE USING (auth.uid() = user_id);
+CREATE POLICY "Users can delete own health" ON health_metrics 
+  FOR DELETE USING (auth.uid() = user_id);
 
-CREATE POLICY "Users can only access their own health metrics" ON health_metrics
-  FOR ALL USING (auth.uid() = user_id);
+-- Activity timeline
+CREATE POLICY "Users can view own timeline" ON activity_timeline 
+  FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Users can insert own timeline" ON activity_timeline 
+  FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Users can update own timeline" ON activity_timeline 
+  FOR UPDATE USING (auth.uid() = user_id);
+CREATE POLICY "Users can delete own timeline" ON activity_timeline 
+  FOR DELETE USING (auth.uid() = user_id);
 
-CREATE POLICY "Users can only access their own timeline" ON activity_timeline
-  FOR ALL USING (auth.uid() = user_id);
+-- Reminders
+CREATE POLICY "Users can view own reminders" ON reminders 
+  FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Users can insert own reminders" ON reminders 
+  FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Users can update own reminders" ON reminders 
+  FOR UPDATE USING (auth.uid() = user_id);
+CREATE POLICY "Users can delete own reminders" ON reminders 
+  FOR DELETE USING (auth.uid() = user_id);
 
-CREATE POLICY "Users can only access their own reminders" ON reminders
-  FOR ALL USING (auth.uid() = user_id);
+-- ============ INDEXES FOR PERFORMANCE ============
+
+CREATE INDEX IF NOT EXISTS idx_daily_logs_user ON daily_logs(user_id);
+CREATE INDEX IF NOT EXISTS idx_daily_logs_created ON daily_logs(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_expenses_user ON expenses(user_id);
+CREATE INDEX IF NOT EXISTS idx_expenses_created ON expenses(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_food_user ON food_entries(user_id);
+CREATE INDEX IF NOT EXISTS idx_sleep_user ON sleep_entries(user_id);
+CREATE INDEX IF NOT EXISTS idx_activities_user ON activities(user_id);
+CREATE INDEX IF NOT EXISTS idx_list_items_user ON list_items(user_id);
+CREATE INDEX IF NOT EXISTS idx_health_user ON health_metrics(user_id);
+CREATE INDEX IF NOT EXISTS idx_timeline_user ON activity_timeline(user_id);
+CREATE INDEX IF NOT EXISTS idx_timeline_created ON activity_timeline(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_reminders_user ON reminders(user_id);
+
+-- ============ DONE! ============
+-- Your database is now set up.
+-- 
+-- NEXT STEPS:
+-- 1. Go to Authentication > Providers > Email
+-- 2. Turn OFF "Confirm email" for easier testing
+-- 3. Deploy your app and test!

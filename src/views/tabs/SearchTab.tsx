@@ -1,5 +1,7 @@
 /**
  * SearchTab - AI Chat / Search Screen
+ * 
+ * Ported context-awareness and AppContext persistence for a professional experience.
  */
 
 import { useState, useRef, useEffect, useMemo } from 'react';
@@ -7,6 +9,7 @@ import { useApp } from '../../store/AppContext';
 import { GeminiService } from '../../services/GeminiService';
 import { format } from 'date-fns';
 import { Send, Sparkles, User, Loader2, MessageCircle } from 'lucide-react';
+import type { ChatMessage } from '../../models/types';
 
 export default function SearchTab() {
   const { state, addChatMessage } = useApp();
@@ -16,9 +19,7 @@ export default function SearchTab() {
 
   // Auto-scroll to bottom
   useEffect(() => {
-    if (state.chatMessages.length > 0) {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [state.chatMessages, isLoading]);
 
   // Generate context from recent data
@@ -44,7 +45,7 @@ ${recentFood || 'No food logged.'}
     const q = query.trim();
     setQuery('');
     
-    // Add user message
+    // Add user message to AppContext for persistence
     addChatMessage('user', q);
     setIsLoading(true);
 
@@ -82,7 +83,7 @@ ${recentFood || 'No food logged.'}
         {state.chatMessages.length === 0 ? (
           <div className="text-center py-12">
             <div className="w-16 h-16 rounded-full mx-auto mb-4 flex items-center justify-center shadow-inner"
-              style={{ background: 'var(--color-surface)' }}>
+              style={{ background: 'rgba(99,102,241,0.05)' }}>
               <Sparkles className="w-8 h-8 text-indigo-500" />
             </div>
             <h3 className="font-semibold text-lg mb-1" style={{ color: 'var(--color-text)' }}>
@@ -111,7 +112,7 @@ ${recentFood || 'No food logged.'}
               <div className={`max-w-[85%] flex gap-2 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
                 <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 mt-1 shadow-sm"
                   style={{
-                    background: msg.role === 'user' ? 'var(--color-primary)' : 'var(--color-surface)',
+                    background: msg.role === 'user' ? 'var(--color-primary)' : 'rgba(99,102,241,0.1)',
                   }}>
                   {msg.role === 'user' ? (
                     <User className="w-4 h-4 text-white" />
@@ -138,7 +139,7 @@ ${recentFood || 'No food logged.'}
         {isLoading && (
           <div className="flex justify-start animate-pulse">
             <div className="flex gap-2 items-center">
-              <div className="w-8 h-8 rounded-full flex items-center justify-center bg-var(--color-surface) shadow-sm">
+              <div className="w-8 h-8 rounded-full flex items-center justify-center bg-indigo-50 shadow-sm">
                 <Sparkles className="w-4 h-4 text-indigo-500" />
               </div>
               <div className="card px-4 py-3 flex items-center gap-2">

@@ -17,13 +17,14 @@ import {
 } from 'lucide-react';
 
 export default function ProfileTab() {
-  const { state, dispatch, updateProfile } = useApp();
+  const { state, dispatch } = useApp();
   const user = state.user;
   const fileInputRef = useRef<HTMLInputElement>(null);
   
   const [editMode, setEditMode] = useState(false);
   const [editName, setEditName] = useState(user?.displayName || '');
   const [editEmail, setEditEmail] = useState(user?.email || '');
+  const [profileImage, setProfileImage] = useState<string | null>(null);
   
   const [showApiKeyInput, setShowApiKeyInput] = useState(false);
   const [apiKey, setApiKey] = useState('');
@@ -36,10 +37,14 @@ export default function ProfileTab() {
     setHasApiKey(hasGeminiApiKey());
     setApiKeyFromEnv(isApiKeyFromEnv());
     setSupabaseConfigured(isSupabaseConfigured());
+    
+    // Load saved profile image
+    const savedImage = localStorage.getItem('lifelog_profile_image');
+    if (savedImage) setProfileImage(savedImage);
   }, []);
 
   const handleSaveProfile = () => {
-    updateProfile(editName, editEmail);
+    dispatch({ type: 'UPDATE_PROFILE', displayName: editName, email: editEmail });
     setEditMode(false);
   };
 
@@ -60,7 +65,8 @@ export default function ProfileTab() {
       const reader = new FileReader();
       reader.onload = (event) => {
         const imageData = event.target?.result as string;
-        updateProfile(user?.displayName || '', user?.email || '', imageData);
+        setProfileImage(imageData);
+        localStorage.setItem('lifelog_profile_image', imageData);
       };
       reader.readAsDataURL(file);
     }
@@ -78,8 +84,6 @@ export default function ProfileTab() {
       dispatch({ type: 'LOGOUT' });
     }
   };
-
-  const profileImage = user?.avatarUrl;
 
   return (
     <div className="pb-4 fade-in safe-area-top">
