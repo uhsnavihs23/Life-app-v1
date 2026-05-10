@@ -88,24 +88,13 @@ export default function LoginScreen() {
               username: email.split('@')[0],
               email: email,
               displayName: email.split('@')[0],
-              createdAt: new Date().toISOString(),
+              createdAt: data.user.created_at,
             },
           });
         }
       }
     } catch (err) {
-      // Fallback to local auth if Supabase not configured
-      await new Promise(resolve => setTimeout(resolve, 500));
-      dispatch({
-        type: 'LOGIN',
-        user: {
-          id: uuid(),
-          username: email.split('@')[0],
-          email: email,
-          displayName: email.split('@')[0],
-          createdAt: new Date().toISOString(),
-        },
-      });
+      setError('Authentication error. Please check your connection.');
     }
 
     setIsLoading(false);
@@ -116,8 +105,9 @@ export default function LoginScreen() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center px-6"
+    <div className="min-h-screen flex flex-col items-center justify-center px-6 safe-area-top"
       style={{ background: 'linear-gradient(145deg, #667eea 0%, #764ba2 100%)' }}>
+
       
       {/* App Logo & Title */}
       <div className="text-center mb-8 fade-in">

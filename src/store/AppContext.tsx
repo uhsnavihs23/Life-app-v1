@@ -13,6 +13,7 @@ import type {
   ChatMessage, EntryTag, ListItem, HealthMetrics, ActivityTimeline,
 } from '../models/types';
 import { StorageService } from '../services/StorageService';
+import { SupabaseDB, isSupabaseConfigured } from '../services/SupabaseService';
 
 /** App state shape */
 interface AppState {
@@ -157,15 +158,53 @@ const AppContext = createContext<AppContextValue | null>(null);
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initialState);
 
+  // Helper to fetch all data from Supabase
+  const fetchAllData = useCallback(async (userId: string) => {
+    if (!isSupabaseConfigured()) return;
+
+    try {
+      const tables = [
+        { name: 'daily_logs', key: 'dailyLogs' },
+        { name: 'expenses', key: 'expenses' },
+        { name: 'food_entries', key: 'foodEntries' },
+        { name: 'sleep_entries', key: 'sleepEntries' },
+        { name: 'activities', key: 'activities' },
+        { name: 'reminders', key: 'reminders' },
+        { name: 'list_items', key: 'listItems' },
+        { name: 'health_metrics', key: 'healthMetrics' },
+        { name: 'activity_timeline', key: 'activityTimeline' },
+      ];
+
+      const loadedState: Partial<AppState> = {};
+
+      for (const table of tables) {
+        const { data, error } = await SupabaseDB.getData(table.name, userId);
+        if (!error && data) {
+          // Map snake_case to camelCase if needed, or just cast
+          (loadedState as any)[table.key] = data;
+        }
+      }
+
+      dispatch({ type: 'LOAD_STATE', state: loadedState });
+    } catch (err) {
+      console.error('Error fetching Supabase data:', err);
+    }
+  }, []);
+
   // Load persisted state on mount
   useEffect(() => {
     const saved = StorageService.load<Partial<AppState>>('app_state');
     if (saved) {
       dispatch({ type: 'LOAD_STATE', state: saved });
+      
+      // If we have a user, try to fetch fresh data from Supabase
+      if (saved.user?.id) {
+        fetchAllData(saved.user.id);
+      }
     }
-  }, []);
+  }, [fetchAllData]);
 
-  // Save state whenever it changes
+  // Save state whenever it changes (local persistence)
   useEffect(() => {
     if (state.isLoggedIn) {
       StorageService.save('app_state', state);
@@ -177,21 +216,36 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     document.documentElement.classList.toggle('dark', state.darkMode);
   }, [state.darkMode]);
 
+  // Helper to save to Supabase
+  const saveToSupabase = useCallback(async (table: string, data: any) => {
+    if (!state.isLoggedIn || !state.user || !isSupabaseConfigured()) return;
+    
+    // Map to snake_case for Supabase if necessary
+    // For simplicity, we'll keep keys matching our types for now as per SQL script
+    const { error } = await SupabaseDB.saveData(table, {
+      ...data,
+      user_id: state.user.id
+    });
+    
+    if (error) {
+      console.error(`Error saving to ${table}:`, error);
+    }
+  }, [state.isLoggedIn, state.user]);
+
   // Helper to add timeline entry
   const addTimelineEntry = useCallback((action: string, category: ActivityTimeline['category'], details: string, metadata?: Record<string, unknown>) => {
-    dispatch({
-      type: 'ADD_TIMELINE',
-      entry: {
-        id: uuid(),
-        userId: state.user?.id || '',
-        action,
-        category,
-        details,
-        metadata,
-        createdAt: new Date().toISOString(),
-      },
-    });
-  }, [state.user]);
+    const entry: ActivityTimeline = {
+      id: uuid(),
+      userId: state.user?.id || '',
+      action,
+      category,
+      details,
+      metadata,
+      createdAt: new Date().toISOString(),
+    };
+    dispatch({ type: 'ADD_TIMELINE', entry });
+    saveToSupabase('activity_timeline', entry);
+  }, [state.user, saveToSupabase]);
 
   const addLog = useCallback((text: string, tag: EntryTag) => {
     const entry: DailyLogEntry = {
@@ -202,8 +256,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       createdAt: new Date().toISOString(),
     };
     dispatch({ type: 'ADD_LOG', entry });
+    saveToSupabase('daily_logs', entry);
     addTimelineEntry('Added log entry', tag, text);
-  }, [state.user, addTimelineEntry]);
+  }, [state.user, addTimelineEntry, saveToSupabase]);
 
   const addExpense = useCallback((amount: number, category: string, note: string) => {
     const entry: ExpenseEntry = {
@@ -216,8 +271,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       createdAt: new Date().toISOString(),
     };
     dispatch({ type: 'ADD_EXPENSE', entry });
+    saveToSupabase('expenses', entry);
     addTimelineEntry('Added expense', 'expense', `₹${amount} - ${category}${note ? ': ' + note : ''}`, { amount, category });
-  }, [state.user, addTimelineEntry]);
+  }, [state.user, addTimelineEntry, saveToSupabase]);
 
   const addFood = useCallback((name: string, portionSize: string, calories: number | undefined, mealType: FoodEntry['mealType'], protein?: number, carbs?: number, fat?: number) => {
     const entry: FoodEntry = {
@@ -233,8 +289,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       createdAt: new Date().toISOString(),
     };
     dispatch({ type: 'ADD_FOOD', entry });
+    saveToSupabase('food_entries', {
+      ...entry,
+      meal_type: mealType // match SQL
+    });
     addTimelineEntry('Added food', 'food', `${name} (${portionSize})${calories ? ' - ' + calories + ' cal' : ''}`, { name, calories, mealType });
-  }, [state.user, addTimelineEntry]);
+  }, [state.user, addTimelineEntry, saveToSupabase]);
 
   const addSleep = useCallback((hours: number, quality: SleepEntry['quality'], bedTime?: string, wakeTime?: string) => {
     const entry: SleepEntry = {
@@ -248,8 +308,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       createdAt: new Date().toISOString(),
     };
     dispatch({ type: 'ADD_SLEEP', entry });
+    saveToSupabase('sleep_entries', {
+      ...entry,
+      bed_time: bedTime,
+      wake_time: wakeTime
+    });
     addTimelineEntry('Added sleep record', 'sleep', `${hours}h - ${quality} quality`, { hours, quality });
-  }, [state.user, addTimelineEntry]);
+  }, [state.user, addTimelineEntry, saveToSupabase]);
 
   const addActivity = useCallback((steps: number, distanceKm?: number, activeMinutes?: number, caloriesBurned?: number) => {
     const entry: ActivityEntry = {
@@ -264,8 +329,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       createdAt: new Date().toISOString(),
     };
     dispatch({ type: 'ADD_ACTIVITY', entry });
+    saveToSupabase('activities', {
+      ...entry,
+      distance_km: distanceKm,
+      active_minutes: activeMinutes,
+      calories_burned: caloriesBurned
+    });
     addTimelineEntry('Added activity', 'exercise', `${steps.toLocaleString()} steps${distanceKm ? ' - ' + distanceKm + ' km' : ''}`, { steps, distanceKm });
-  }, [state.user, addTimelineEntry]);
+  }, [state.user, addTimelineEntry, saveToSupabase]);
 
   const addFile = useCallback((fileName: string, fileType: 'pdf' | 'image', localUrl: string) => {
     const file: FileAttachment = {
@@ -277,8 +348,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       createdAt: new Date().toISOString(),
     };
     dispatch({ type: 'ADD_FILE', file });
+    // Note: Usually files are stored in Supabase Storage, but here we just log the metadata
+    saveToSupabase('activity_timeline', {
+      action: 'Uploaded file',
+      category: 'file',
+      details: fileName,
+      metadata: { fileType, localUrl }
+    });
     addTimelineEntry('Uploaded file', 'file', fileName, { fileType });
-  }, [state.user, addTimelineEntry]);
+  }, [state.user, addTimelineEntry, saveToSupabase]);
 
   const addReminder = useCallback((title: string, description: string, dateTime: string, isRecurring: boolean, recurrenceInterval?: Reminder['recurrenceInterval']) => {
     const reminder: Reminder = {
@@ -293,8 +371,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       createdAt: new Date().toISOString(),
     };
     dispatch({ type: 'ADD_REMINDER', reminder });
+    saveToSupabase('reminders', {
+      ...reminder,
+      date_time: dateTime,
+      is_recurring: isRecurring,
+      recurrence_interval: recurrenceInterval,
+      is_completed: false
+    });
     addTimelineEntry('Created reminder', 'reminder', title, { dateTime, isRecurring });
-  }, [state.user, addTimelineEntry]);
+  }, [state.user, addTimelineEntry, saveToSupabase]);
 
   const addChatMessage = useCallback((role: ChatMessage['role'], content: string) => {
     dispatch({
@@ -316,8 +401,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       createdAt: new Date().toISOString(),
     };
     dispatch({ type: 'ADD_LIST_ITEM', item });
+    saveToSupabase('list_items', {
+      ...item,
+      list_type: listType,
+      date_added: item.dateAdded
+    });
     addTimelineEntry(`Added to ${listType} list`, 'list', title, { listType, rating });
-  }, [state.user, addTimelineEntry]);
+  }, [state.user, addTimelineEntry, saveToSupabase]);
 
   const addHealthMetrics = useCallback((data: Partial<HealthMetrics>) => {
     const metrics: HealthMetrics = {
@@ -328,8 +418,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       createdAt: new Date().toISOString(),
     };
     dispatch({ type: 'ADD_HEALTH_METRICS', metrics });
+    saveToSupabase('health_metrics', {
+      ...metrics,
+      water_intake: metrics.waterIntake,
+      energy_level: metrics.energyLevel,
+      stress_level: metrics.stressLevel
+    });
     addTimelineEntry('Logged health metrics', 'health', `Mood: ${data.mood || 'N/A'}, Energy: ${data.energyLevel || 'N/A'}/10`, data);
-  }, [state.user, addTimelineEntry]);
+  }, [state.user, addTimelineEntry, saveToSupabase]);
 
   const addTimeline = useCallback((action: string, category: ActivityTimeline['category'], details: string, metadata?: Record<string, unknown>) => {
     addTimelineEntry(action, category, details, metadata);
@@ -352,3 +448,4 @@ export function useApp() {
   if (!ctx) throw new Error('useApp must be used inside AppProvider');
   return ctx;
 }
+

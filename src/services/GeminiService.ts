@@ -42,7 +42,7 @@ export const isApiKeyFromEnv = (): boolean => {
 };
 
 const GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
-const MODEL = 'gemini-1.5-flash';
+const MODEL = 'gemini-1.5-flash-latest'; // Updated for better compatibility
 
 interface GeminiResponse {
   candidates?: Array<{
