@@ -117,15 +117,36 @@ export const GeminiService = {
   async classifyLog(text: string) {
     if (!hasGeminiApiKey()) return mockClassify(text);
     try {
-      const prompt = `Classify this log entry. Return ONLY JSON (no markdown):
-{"type":"general|expense|food|sleep|exercise|note","confidence":0.0-1.0,"extractedData":{}}
+      const now = new Date().toISOString();
+      const prompt = `You are a data extraction expert for a life logging app. 
+Analyze the user's log entry and extract structured data.
 
-Entry: "${text}"`;
+Log Entry: "${text}"
+Current Time: ${now}
+
+Return ONLY a JSON object (no markdown):
+{
+  "type": "expense" | "food" | "sleep" | "exercise" | "general" | "note",
+  "confidence": 0.0-1.0,
+  "extractedData": {
+    // For sleep: MUST calculate "hours" (number) if start/end times are provided.
+    // For expense: extract "amount" (number) and "category".
+    // For exercise: extract "steps" (number), or bodyweight reps like "pushups": 20, "situps": 30.
+    // For food: extract "name", "calories" (if mentioned).
+  }
+}
+
+Important: If the user says "Slept at 4:30 am and woke at 11 am", calculate the duration and set "hours": 6.5.`;
+      
       const response = await callGemini(prompt);
       const match = response.match(/\{[\s\S]*\}/);
       if (match) {
         const parsed = JSON.parse(match[0]);
-        return { type: parsed.type || 'general', confidence: parsed.confidence || 0.5, extractedData: parsed.extractedData || {} };
+        return { 
+          type: parsed.type || 'general', 
+          confidence: parsed.confidence || 0.5, 
+          extractedData: parsed.extractedData || {} 
+        };
       }
     } catch (e) { console.error('classify error:', e); }
     return mockClassify(text);

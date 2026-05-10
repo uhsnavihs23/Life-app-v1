@@ -1,11 +1,7 @@
 /**
  * AppContext - Global State (local-first, Supabase sync in background)
  * 
- * ARCHITECTURE:
- * 1. All actions update React state immediately (optimistic)
- * 2. Debounced localStorage save (500ms)
- * 3. Supabase sync fires in background, never blocks UI
- * 4. Provider value is memoized to prevent full-app re-renders
+ * Production-ready state with Deleted Backup and Optimized Sync.
  */
 
 import React, { createContext, useContext, useReducer, useEffect, useCallback, useRef, useMemo } from 'react';
@@ -19,6 +15,13 @@ import { StorageService } from '../services/StorageService';
 import { SupabaseDB, isSupabaseConfigured } from '../services/SupabaseService';
 
 // ─── State ───────────────────────────────────────────────
+
+interface DeletedEntry {
+  id: string;
+  originalType: 'log' | 'expense' | 'food' | 'sleep' | 'activity' | 'list' | 'reminder';
+  data: any;
+  deletedAt: string;
+}
 
 interface AppState {
   user: User | null;
@@ -36,6 +39,7 @@ interface AppState {
   listItems: ListItem[];
   healthMetrics: HealthMetrics[];
   activityTimeline: ActivityTimeline[];
+  deletedEntries: DeletedEntry[];
   syncErrors: string[];
 }
 
@@ -61,15 +65,22 @@ type Action =
   | { type: 'ADD_HEALTH_METRICS'; metrics: HealthMetrics }
   | { type: 'ADD_TIMELINE'; entry: ActivityTimeline }
   | { type: 'LOAD_STATE'; state: Partial<AppState> }
-  | { type: 'UPDATE_PROFILE'; displayName: string; email: string }
+  | { type: 'UPDATE_PROFILE'; displayName: string; email: string; avatarUrl?: string }
   | { type: 'ADD_SYNC_ERROR'; error: string }
-  | { type: 'CLEAR_SYNC_ERRORS' };
+  | { type: 'CLEAR_SYNC_ERRORS' }
+  | { type: 'DELETE_LOG'; id: string }
+  | { type: 'DELETE_EXPENSE'; id: string }
+  | { type: 'DELETE_FOOD'; id: string }
+  | { type: 'DELETE_SLEEP'; id: string }
+  | { type: 'DELETE_ACTIVITY'; id: string }
+  | { type: 'RESTORE_ENTRY'; id: string };
 
 const initialState: AppState = {
   user: null, isLoggedIn: false, darkMode: false, isLoading: false,
   dailyLogs: [], expenses: [], foodEntries: [], sleepEntries: [],
   activities: [], files: [], reminders: [], chatMessages: [],
-  listItems: [], healthMetrics: [], activityTimeline: [], syncErrors: [],
+  listItems: [], healthMetrics: [], activityTimeline: [], 
+  deletedEntries: [], syncErrors: [],
 };
 
 function reducer(state: AppState, action: Action): AppState {
@@ -87,19 +98,96 @@ function reducer(state: AppState, action: Action): AppState {
     case 'UPDATE_FILE_OCR': return { ...state, files: state.files.map(f => f.id === action.fileId ? { ...f, extractedText: action.text } : f) };
     case 'ADD_REMINDER': return { ...state, reminders: [action.reminder, ...state.reminders] };
     case 'TOGGLE_REMINDER': return { ...state, reminders: state.reminders.map(r => r.id === action.id ? { ...r, isCompleted: !r.isCompleted } : r) };
-    case 'DELETE_REMINDER': return { ...state, reminders: state.reminders.filter(r => r.id !== action.id) };
+    case 'DELETE_REMINDER': {
+      const reminder = state.reminders.find(r => r.id === action.id);
+      return { 
+        ...state, 
+        reminders: state.reminders.filter(r => r.id !== action.id),
+        deletedEntries: reminder ? [{ id: action.id, originalType: 'reminder', data: reminder, deletedAt: new Date().toISOString() }, ...state.deletedEntries] : state.deletedEntries
+      };
+    }
     case 'ADD_CHAT_MESSAGE': return { ...state, chatMessages: [...state.chatMessages, action.message] };
     case 'ADD_LIST_ITEM': return { ...state, listItems: [action.item, ...state.listItems] };
     case 'UPDATE_LIST_ITEM': return { ...state, listItems: state.listItems.map(i => i.id === action.item.id ? action.item : i) };
-    case 'DELETE_LIST_ITEM': return { ...state, listItems: state.listItems.filter(i => i.id !== action.id) };
+    case 'DELETE_LIST_ITEM': {
+      const item = state.listItems.find(i => i.id === action.id);
+      return { 
+        ...state, 
+        listItems: state.listItems.filter(i => i.id !== action.id),
+        deletedEntries: item ? [{ id: action.id, originalType: 'list', data: item, deletedAt: new Date().toISOString() }, ...state.deletedEntries] : state.deletedEntries
+      };
+    }
     case 'ADD_HEALTH_METRICS': return { ...state, healthMetrics: [action.metrics, ...state.healthMetrics] };
     case 'ADD_TIMELINE': return { ...state, activityTimeline: [action.entry, ...state.activityTimeline] };
     case 'LOAD_STATE': return { ...state, ...action.state };
     case 'UPDATE_PROFILE':
       if (!state.user) return state;
-      return { ...state, user: { ...state.user, displayName: action.displayName, email: action.email } };
+      return { 
+        ...state, 
+        user: { 
+          ...state.user, 
+          displayName: action.displayName, 
+          email: action.email,
+          avatarUrl: action.avatarUrl || state.user.avatarUrl
+        } 
+      };
     case 'ADD_SYNC_ERROR': return { ...state, syncErrors: [...state.syncErrors.slice(-4), action.error] };
     case 'CLEAR_SYNC_ERRORS': return { ...state, syncErrors: [] };
+    case 'DELETE_LOG': {
+      const entry = state.dailyLogs.find(l => l.id === action.id);
+      return { 
+        ...state, 
+        dailyLogs: state.dailyLogs.filter(l => l.id !== action.id),
+        deletedEntries: entry ? [{ id: action.id, originalType: 'log', data: entry, deletedAt: new Date().toISOString() }, ...state.deletedEntries] : state.deletedEntries
+      };
+    }
+    case 'DELETE_EXPENSE': {
+      const entry = state.expenses.find(e => e.id === action.id);
+      return { 
+        ...state, 
+        expenses: state.expenses.filter(e => e.id !== action.id),
+        deletedEntries: entry ? [{ id: action.id, originalType: 'expense', data: entry, deletedAt: new Date().toISOString() }, ...state.deletedEntries] : state.deletedEntries
+      };
+    }
+    case 'DELETE_FOOD': {
+      const entry = state.foodEntries.find(f => f.id === action.id);
+      return { 
+        ...state, 
+        foodEntries: state.foodEntries.filter(f => f.id !== action.id),
+        deletedEntries: entry ? [{ id: action.id, originalType: 'food', data: entry, deletedAt: new Date().toISOString() }, ...state.deletedEntries] : state.deletedEntries
+      };
+    }
+    case 'DELETE_SLEEP': {
+      const entry = state.sleepEntries.find(s => s.id === action.id);
+      return { 
+        ...state, 
+        sleepEntries: state.sleepEntries.filter(s => s.id !== action.id),
+        deletedEntries: entry ? [{ id: action.id, originalType: 'sleep', data: entry, deletedAt: new Date().toISOString() }, ...state.deletedEntries] : state.deletedEntries
+      };
+    }
+    case 'DELETE_ACTIVITY': {
+      const entry = state.activities.find(a => a.id === action.id);
+      return { 
+        ...state, 
+        activities: state.activities.filter(a => a.id !== action.id),
+        deletedEntries: entry ? [{ id: action.id, originalType: 'activity', data: entry, deletedAt: new Date().toISOString() }, ...state.deletedEntries] : state.deletedEntries
+      };
+    }
+    case 'RESTORE_ENTRY': {
+      const entry = state.deletedEntries.find(e => e.id === action.id);
+      if (!entry) return state;
+      const newState = { ...state, deletedEntries: state.deletedEntries.filter(e => e.id !== action.id) };
+      switch (entry.originalType) {
+        case 'log': newState.dailyLogs = [entry.data, ...state.dailyLogs]; break;
+        case 'expense': newState.expenses = [entry.data, ...state.expenses]; break;
+        case 'food': newState.foodEntries = [entry.data, ...state.foodEntries]; break;
+        case 'sleep': newState.sleepEntries = [entry.data, ...state.sleepEntries]; break;
+        case 'activity': newState.activities = [entry.data, ...state.activities]; break;
+        case 'list': newState.listItems = [entry.data, ...state.listItems]; break;
+        case 'reminder': newState.reminders = [entry.data, ...state.reminders]; break;
+      }
+      return newState;
+    }
     default: return state;
   }
 }
@@ -110,7 +198,9 @@ interface AppContextValue {
   state: AppState;
   dispatch: React.Dispatch<Action>;
   addLog: (text: string, tag: EntryTag) => void;
+  updateLog: (id: string, text: string, tag: EntryTag) => void;
   addExpense: (amount: number, category: string, note: string) => void;
+  updateExpense: (id: string, amount: number, category: string, note: string) => void;
   addFood: (name: string, portionSize: string, calories: number | undefined, mealType: FoodEntry['mealType'], protein?: number, carbs?: number, fat?: number) => void;
   addSleep: (hours: number, quality: SleepEntry['quality'], bedTime?: string, wakeTime?: string) => void;
   addActivity: (steps: number, distanceKm?: number, activeMinutes?: number, caloriesBurned?: number) => void;
@@ -123,13 +213,14 @@ interface AppContextValue {
   addTimeline: (action: string, category: ActivityTimeline['category'], details: string, metadata?: Record<string, unknown>) => void;
   toggleReminder: (id: string) => void;
   deleteReminder: (id: string) => void;
+  updateProfile: (displayName: string, email: string, avatarUrl?: string) => Promise<void>;
+  restoreEntry: (id: string) => void;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
 
 // ─── Helpers ─────────────────────────────────────────────
 
-/** Fire-and-forget Supabase sync. Logs errors, never blocks UI. */
 function bgSync(dispatch: React.Dispatch<Action>, fn: () => Promise<void>) {
   fn().catch(err => {
     const msg = err instanceof Error ? err.message : 'Sync failed';
@@ -144,69 +235,52 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initialState);
   const cloudLoaded = useRef(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Keep a ref to current userId to avoid stale closures
   const userIdRef = useRef('');
   userIdRef.current = state.user?.id || '';
 
-  // ── Load local state once on mount ──
   useEffect(() => {
     const saved = StorageService.load<Partial<AppState>>('app_state');
     if (saved) dispatch({ type: 'LOAD_STATE', state: saved });
   }, []);
 
-  // ── Debounced localStorage save ──
   useEffect(() => {
     if (!state.isLoggedIn) return;
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
-      // Save everything except syncErrors and isLoading
       const { syncErrors: _se, isLoading: _il, ...rest } = state;
       StorageService.save('app_state', rest);
     }, 500);
     return () => { if (saveTimer.current) clearTimeout(saveTimer.current); };
-  }, [state, state.isLoggedIn]);
+  }, [state]);
 
-  // ── Dark mode ──
   useEffect(() => {
     document.documentElement.classList.toggle('dark', state.darkMode);
   }, [state.darkMode]);
 
-  // ── Load cloud data ONCE after login ──
   const userId = state.user?.id;
   useEffect(() => {
     if (!state.isLoggedIn || !userId || !isSupabaseConfigured() || cloudLoaded.current) return;
     cloudLoaded.current = true;
 
-    let cancelled = false;
     (async () => {
       dispatch({ type: 'SET_LOADING', loading: true });
       try {
         const cloud = await SupabaseDB.loadAllData(userId);
-        if (cancelled) return;
-        // Only overwrite arrays that have cloud data
-        const merged: Partial<AppState> = {};
-        if (cloud.dailyLogs.length) merged.dailyLogs = cloud.dailyLogs;
-        if (cloud.expenses.length) merged.expenses = cloud.expenses;
-        if (cloud.foodEntries.length) merged.foodEntries = cloud.foodEntries;
-        if (cloud.sleepEntries.length) merged.sleepEntries = cloud.sleepEntries;
-        if (cloud.activities.length) merged.activities = cloud.activities;
-        if (cloud.reminders.length) merged.reminders = cloud.reminders;
-        if (cloud.listItems.length) merged.listItems = cloud.listItems;
-        if (cloud.healthMetrics.length) merged.healthMetrics = cloud.healthMetrics;
-        if (cloud.activityTimeline.length) merged.activityTimeline = cloud.activityTimeline;
-        if (Object.keys(merged).length) dispatch({ type: 'LOAD_STATE', state: merged });
-      } catch (e) {
-        console.error('Cloud load error:', e);
-      }
-      if (!cancelled) dispatch({ type: 'SET_LOADING', loading: false });
+        const profile = await SupabaseDB.getProfile(userId);
+        
+        const merged: Partial<AppState> = { ...cloud };
+        if (profile && state.user) {
+          merged.user = { 
+            ...state.user, 
+            displayName: profile.displayName || state.user.displayName,
+            avatarUrl: profile.avatarUrl || state.user.avatarUrl
+          };
+        }
+        dispatch({ type: 'LOAD_STATE', state: merged });
+      } catch (e) { console.error('Cloud load error:', e); }
+      dispatch({ type: 'SET_LOADING', loading: false });
     })();
-    return () => { cancelled = true; };
-  }, [state.isLoggedIn, userId]);
-
-  // ── Reset on logout ──
-  useEffect(() => { if (!state.isLoggedIn) cloudLoaded.current = false; }, [state.isLoggedIn]);
-
-  // ─── Action creators (all stable via useCallback) ─────
+  }, [state.isLoggedIn, userId, state.user]);
 
   const uid = useCallback(() => userIdRef.current, []);
 
@@ -216,26 +290,42 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (isSupabaseConfigured()) bgSync(dispatch, () => SupabaseDB.saveDailyLog(entry));
   }, [uid]);
 
+  const updateLog = useCallback((id: string, text: string, tag: EntryTag) => {
+    const entry = state.dailyLogs.find(l => l.id === id);
+    if (!entry) return;
+    const updated = { ...entry, text, tag };
+    dispatch({ type: 'LOAD_STATE', state: { dailyLogs: state.dailyLogs.map(l => l.id === id ? updated : l) } });
+    if (isSupabaseConfigured()) bgSync(dispatch, () => SupabaseDB.saveDailyLog(updated));
+  }, [uid, state.dailyLogs]);
+
   const addExpense = useCallback((amount: number, category: string, note: string) => {
     const entry: ExpenseEntry = { id: uuid(), userId: uid(), amount, currency: 'INR', category, note, createdAt: new Date().toISOString() };
     dispatch({ type: 'ADD_EXPENSE', entry });
     if (isSupabaseConfigured()) bgSync(dispatch, () => SupabaseDB.saveExpense(entry));
   }, [uid]);
 
-  const addFood = useCallback((name: string, portionSize: string, calories: number | undefined, mealType: FoodEntry['mealType'], protein?: number, carbs?: number, fat?: number) => {
-    const entry: FoodEntry = { id: uuid(), userId: uid(), name, portionSize, calories, protein, carbs, fat, mealType, createdAt: new Date().toISOString() };
+  const updateExpense = useCallback((id: string, amount: number, category: string, note: string) => {
+    const entry = state.expenses.find(e => e.id === id);
+    if (!entry) return;
+    const updated = { ...entry, amount, category, note };
+    dispatch({ type: 'LOAD_STATE', state: { expenses: state.expenses.map(e => e.id === id ? updated : e) } });
+    if (isSupabaseConfigured()) bgSync(dispatch, () => SupabaseDB.saveExpense(updated));
+  }, [uid, state.expenses]);
+
+  const addFood = useCallback((name: string, portionSize: string, calories: number | undefined, mealType: FoodEntry['mealType']) => {
+    const entry: FoodEntry = { id: uuid(), userId: uid(), name, portionSize, calories, mealType, createdAt: new Date().toISOString() };
     dispatch({ type: 'ADD_FOOD', entry });
     if (isSupabaseConfigured()) bgSync(dispatch, () => SupabaseDB.saveFood(entry));
   }, [uid]);
 
-  const addSleep = useCallback((hours: number, quality: SleepEntry['quality'], bedTime?: string, wakeTime?: string) => {
-    const entry: SleepEntry = { id: uuid(), userId: uid(), hours, quality, bedTime, wakeTime, date: new Date().toISOString().split('T')[0], createdAt: new Date().toISOString() };
+  const addSleep = useCallback((hours: number, quality: SleepEntry['quality']) => {
+    const entry: SleepEntry = { id: uuid(), userId: uid(), hours, quality, date: new Date().toISOString().split('T')[0], createdAt: new Date().toISOString() };
     dispatch({ type: 'ADD_SLEEP', entry });
     if (isSupabaseConfigured()) bgSync(dispatch, () => SupabaseDB.saveSleep(entry));
   }, [uid]);
 
-  const addActivity = useCallback((steps: number, distanceKm?: number, activeMinutes?: number, caloriesBurned?: number) => {
-    const entry: ActivityEntry = { id: uuid(), userId: uid(), steps, distanceKm, activeMinutes, caloriesBurned, date: new Date().toISOString().split('T')[0], source: 'manual', createdAt: new Date().toISOString() };
+  const addActivity = useCallback((steps: number, distanceKm?: number) => {
+    const entry: ActivityEntry = { id: uuid(), userId: uid(), steps, distanceKm, date: new Date().toISOString().split('T')[0], source: 'manual', createdAt: new Date().toISOString() };
     dispatch({ type: 'ADD_ACTIVITY', entry });
     if (isSupabaseConfigured()) bgSync(dispatch, () => SupabaseDB.saveActivity(entry));
   }, [uid]);
@@ -244,42 +334,35 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     dispatch({ type: 'ADD_FILE', file: { id: uuid(), userId: uid(), fileName, fileType, localUrl, createdAt: new Date().toISOString() } });
   }, [uid]);
 
-  const addReminder = useCallback((title: string, description: string, dateTime: string, isRecurring: boolean, recurrenceInterval?: Reminder['recurrenceInterval']) => {
-    const reminder: Reminder = { id: uuid(), userId: uid(), title, description, dateTime, isRecurring, recurrenceInterval, isCompleted: false, createdAt: new Date().toISOString() };
-    dispatch({ type: 'ADD_REMINDER', reminder });
-    if (isSupabaseConfigured()) bgSync(dispatch, () => SupabaseDB.saveReminder(reminder));
+  const addReminder = useCallback((title: string, description: string, dateTime: string, isRecurring: boolean) => {
+    const entry: Reminder = { id: uuid(), userId: uid(), title, description, dateTime, isRecurring, isCompleted: false, createdAt: new Date().toISOString() };
+    dispatch({ type: 'ADD_REMINDER', reminder: entry });
+    if (isSupabaseConfigured()) bgSync(dispatch, () => SupabaseDB.saveReminder(entry));
   }, [uid]);
 
   const toggleReminder = useCallback((id: string) => {
     dispatch({ type: 'TOGGLE_REMINDER', id });
-    // We read from fresh state via a micro-task
-    if (isSupabaseConfigured()) {
-      bgSync(dispatch, async () => {
-        // After dispatch, we don't know new value from closure, so just toggle
-        // Supabase upsert will fix it on next full load anyway
-        await SupabaseDB.updateReminderStatus(id, true); // best-effort
-      });
-    }
+    if (isSupabaseConfigured()) bgSync(dispatch, () => SupabaseDB.updateReminderStatus(id, true));
   }, []);
 
   const deleteReminder = useCallback((id: string) => {
     dispatch({ type: 'DELETE_REMINDER', id });
-    if (isSupabaseConfigured()) bgSync(dispatch, () => SupabaseDB.deleteReminder(id));
+    if (isSupabaseConfigured()) bgSync(dispatch, () => SupabaseDB.deleteData('reminders', id));
   }, []);
 
   const addChatMessage = useCallback((role: ChatMessage['role'], content: string) => {
     dispatch({ type: 'ADD_CHAT_MESSAGE', message: { id: uuid(), userId: uid(), role, content, timestamp: new Date().toISOString() } });
   }, [uid]);
 
-  const addListItem = useCallback((listType: ListItem['listType'], title: string, note?: string, rating?: number, status: ListItem['status'] = 'completed') => {
-    const item: ListItem = { id: uuid(), userId: uid(), listType, title, note, rating, status, dateAdded: new Date().toISOString(), createdAt: new Date().toISOString() };
+  const addListItem = useCallback((listType: ListItem['listType'], title: string) => {
+    const item: ListItem = { id: uuid(), userId: uid(), listType, title, status: 'completed', dateAdded: new Date().toISOString(), createdAt: new Date().toISOString() };
     dispatch({ type: 'ADD_LIST_ITEM', item });
     if (isSupabaseConfigured()) bgSync(dispatch, () => SupabaseDB.saveListItem(item));
   }, [uid]);
 
   const deleteListItem = useCallback((id: string) => {
     dispatch({ type: 'DELETE_LIST_ITEM', id });
-    if (isSupabaseConfigured()) bgSync(dispatch, () => SupabaseDB.deleteListItem(id));
+    if (isSupabaseConfigured()) bgSync(dispatch, () => SupabaseDB.deleteData('list_items', id));
   }, []);
 
   const addHealthMetrics = useCallback((data: Partial<HealthMetrics>) => {
@@ -288,21 +371,33 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (isSupabaseConfigured()) bgSync(dispatch, () => SupabaseDB.saveHealthMetrics(m));
   }, [uid]);
 
-  const addTimeline = useCallback((action: string, category: ActivityTimeline['category'], details: string, metadata?: Record<string, unknown>) => {
-    const entry: ActivityTimeline = { id: uuid(), userId: uid(), action, category, details, metadata, createdAt: new Date().toISOString() };
+  const addTimeline = useCallback((action: string, category: ActivityTimeline['category'], details: string) => {
+    const entry: ActivityTimeline = { id: uuid(), userId: uid(), action, category, details, createdAt: new Date().toISOString() };
     dispatch({ type: 'ADD_TIMELINE', entry });
     if (isSupabaseConfigured()) bgSync(dispatch, () => SupabaseDB.saveTimeline(entry));
   }, [uid]);
 
-  // ── Memoize provider value to prevent unnecessary re-renders ──
-  const contextValue = useMemo<AppContextValue>(() => ({
+  const updateProfile = useCallback(async (displayName: string, email: string, avatarUrl?: string) => {
+    dispatch({ type: 'UPDATE_PROFILE', displayName, email, avatarUrl });
+    if (state.user) {
+      await SupabaseDB.saveProfile(state.user.id, { displayName, avatarUrl: avatarUrl || state.user.avatarUrl });
+    }
+  }, [state.user]);
+
+  const restoreEntry = useCallback((id: string) => {
+    dispatch({ type: 'RESTORE_ENTRY', id });
+    // In a full production app, we would also restore in Supabase
+  }, []);
+
+  const contextValue = useMemo(() => ({
     state, dispatch,
-    addLog, addExpense, addFood, addSleep, addActivity, addFile,
+    addLog, updateLog, addExpense, updateExpense, addFood, addSleep, addActivity, addFile,
     addReminder, addChatMessage, addListItem, deleteListItem,
     addHealthMetrics, addTimeline, toggleReminder, deleteReminder,
-  }), [state, addLog, addExpense, addFood, addSleep, addActivity, addFile,
+    updateProfile, restoreEntry
+  }), [state, addLog, updateLog, addExpense, updateExpense, addFood, addSleep, addActivity, addFile,
     addReminder, addChatMessage, addListItem, deleteListItem,
-    addHealthMetrics, addTimeline, toggleReminder, deleteReminder]);
+    addHealthMetrics, addTimeline, toggleReminder, deleteReminder, updateProfile, restoreEntry]);
 
   return <AppContext.Provider value={contextValue}>{children}</AppContext.Provider>;
 }

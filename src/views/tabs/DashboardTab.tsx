@@ -1,14 +1,13 @@
 /**
  * DashboardTab - Life insights at a glance
  * 
- * Updated with:
- * - INR currency (₹)
- * - Deep health insights
- * - AI-powered suggestions
- * - Safe area for Dynamic Island
+ * Ported refinements:
+ * - Dedicated Exercise Table (pushups, situps, etc.)
+ * - Quota-optimized AI Insights (manual refresh)
+ * - INR currency support
  */
 
-import { useMemo, useState, useEffect, useRef } from 'react';
+import { useMemo, useState, useCallback } from 'react';
 import { useApp } from '../../store/AppContext';
 import { formatINR } from '../../models/types';
 import { GeminiService, hasGeminiApiKey } from '../../services/GeminiService';
@@ -17,7 +16,7 @@ import {
   BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip,
   AreaChart, Area, PieChart, Pie, Cell,
 } from 'recharts';
-import { TrendingUp, IndianRupee, Utensils, Moon, Footprints, Brain, Heart, Droplets, Zap, Loader2 } from 'lucide-react';
+import { TrendingUp, IndianRupee, Utensils, Moon, Footprints, Brain, Heart, Zap, Loader2, Dumbbell } from 'lucide-react';
 
 export default function DashboardTab() {
   const { state } = useApp();
@@ -27,328 +26,142 @@ export default function DashboardTab() {
   const [aiInsights, setAiInsights] = useState<string[]>([]);
   const [loadingInsights, setLoadingInsights] = useState(false);
 
-  // Calculate stats — depend on SPECIFIC arrays, not entire state
+  // Calculate stats
   const stats = useMemo(() => {
     const expToday = state.expenses.filter(e => e.createdAt.startsWith(today));
-    const expWeek = state.expenses.filter(e => isAfter(new Date(e.createdAt), weekStart));
     const foodToday = state.foodEntries.filter(f => f.createdAt.startsWith(today));
     const sleepToday = state.sleepEntries.filter(s => s.date === today);
     const actToday = state.activities.filter(a => a.date === today);
     const healthToday = state.healthMetrics.filter(h => h.date === today);
 
+    // Exercise breakdown (extracted from logs or activities)
+    const exercises: Record<string, number> = {};
+    state.dailyLogs.filter(l => l.createdAt.startsWith(today)).forEach(l => {
+      // Very basic extraction for UI demo - in real app, classifyLog handles this
+      const pushups = l.text.match(/(\d+)\s*pushups/i);
+      if (pushups) exercises['Pushups'] = (exercises['Pushups'] || 0) + parseInt(pushups[1]);
+      const situps = l.text.match(/(\d+)\s*situps/i);
+      if (situps) exercises['Situps'] = (exercises['Situps'] || 0) + parseInt(situps[1]);
+    });
+
     return {
       expensesToday: expToday.reduce((s, e) => s + e.amount, 0),
-      expensesWeek: expWeek.reduce((s, e) => s + e.amount, 0),
       mealsToday: foodToday.length,
       caloriesToday: foodToday.reduce((s, f) => s + (f.calories || 0), 0),
-      proteinToday: foodToday.reduce((s, f) => s + (f.protein || 0), 0),
-      carbsToday: foodToday.reduce((s, f) => s + (f.carbs || 0), 0),
-      fatToday: foodToday.reduce((s, f) => s + (f.fat || 0), 0),
       sleepToday: sleepToday.length > 0 ? sleepToday[0].hours : 0,
-      sleepQuality: sleepToday.length > 0 ? sleepToday[0].quality : null,
       stepsToday: actToday.reduce((s, a) => s + a.steps, 0),
-      entriesTotal: state.dailyLogs.length,
-      mood: healthToday.length > 0 ? healthToday[0].mood : null,
-      energy: healthToday.length > 0 ? healthToday[0].energyLevel : null,
       water: healthToday.length > 0 ? healthToday[0].waterIntake : 0,
+      exercises,
     };
-  }, [state.expenses, state.foodEntries, state.sleepEntries, state.activities, state.healthMetrics, state.dailyLogs, today, weekStart]);
+  }, [state.expenses, state.foodEntries, state.sleepEntries, state.activities, state.healthMetrics, state.dailyLogs, today]);
 
-  // Load AI insights ONCE when tab mounts, not on every stat change
-  const aiLoadedRef = useRef(false);
-  useEffect(() => {
-    if (aiLoadedRef.current || !hasGeminiApiKey()) return;
-    aiLoadedRef.current = true;
-
-    let cancelled = false;
-    setLoadingInsights(true);
-    GeminiService.generateInsights({
-      sleepHours: stats.sleepToday,
-      steps: stats.stepsToday,
-      expenses: stats.expensesToday,
-      meals: stats.mealsToday,
-      calories: stats.caloriesToday,
-    }).then(insights => {
-      if (!cancelled) setAiInsights(insights);
-    }).catch(err => {
-      console.warn('AI insights error:', err);
-    }).finally(() => {
-      if (!cancelled) setLoadingInsights(false);
-    });
-    return () => { cancelled = true; };
-  }, []); // intentionally empty — load once
-
-  // Sleep data for chart (last 7 days)
-  const sleepChartData = useMemo(() => {
-    const days = [];
-    for (let i = 6; i >= 0; i--) {
-      const d = format(subDays(new Date(), i), 'yyyy-MM-dd');
-      const entry = state.sleepEntries.find(s => s.date === d);
-      days.push({
-        day: format(subDays(new Date(), i), 'EEE'),
-        hours: entry ? entry.hours : 0,
-      });
-    }
-    return days;
-  }, [state.sleepEntries]);
-
-  // Expense category breakdown
-  const expensePieData = useMemo(() => {
-    const catMap: Record<string, number> = {};
-    state.expenses
-      .filter(e => isAfter(new Date(e.createdAt), weekStart))
-      .forEach(e => {
-        catMap[e.category] = (catMap[e.category] || 0) + e.amount;
-      });
-    return Object.entries(catMap).map(([name, value]) => ({ name, value }));
-  }, [state.expenses, weekStart]);
-
-  // Steps data for chart (last 7 days)
-  const stepsChartData = useMemo(() => {
-    const days = [];
-    for (let i = 6; i >= 0; i--) {
-      const d = format(subDays(new Date(), i), 'yyyy-MM-dd');
-      const dayActivities = state.activities.filter(a => a.date === d);
-      days.push({
-        day: format(subDays(new Date(), i), 'EEE'),
-        steps: dayActivities.reduce((s, a) => s + a.steps, 0),
-      });
-    }
-    return days;
-  }, [state.activities]);
-
-  const PIE_COLORS = ['#6366f1', '#ef4444', '#f59e0b', '#10b981', '#8b5cf6', '#ec4899', '#06b6d4', '#64748b'];
-
-  // Generate local insights if no API key
-  const localInsights = useMemo(() => {
-    const insights: string[] = [];
+  // AI insights — manual refresh only
+  const loadAiInsights = useCallback(async () => {
+    if (!hasGeminiApiKey() || loadingInsights) return;
     
-    if (stats.sleepToday > 0) {
-      if (stats.sleepToday >= 7 && stats.sleepToday <= 9) {
-        insights.push(`✅ Great sleep! ${stats.sleepToday}h is perfect for recovery and focus.`);
-      } else if (stats.sleepToday < 6) {
-        insights.push(`⚠️ Only ${stats.sleepToday}h sleep. Try to get 7-9 hours tonight for better health.`);
-      } else if (stats.sleepToday > 9) {
-        insights.push(`💤 ${stats.sleepToday}h sleep is above average. Check if you're oversleeping.`);
-      }
+    // Only fetch if there is meaningful data to analyze
+    if (stats.stepsToday === 0 && stats.expensesToday === 0 && stats.sleepToday === 0) {
+      setAiInsights(["Log some activities first to get personalized AI insights! ✨"]);
+      return;
     }
 
-    if (stats.stepsToday > 0) {
-      if (stats.stepsToday >= 10000) {
-        insights.push(`🎉 Amazing! ${stats.stepsToday.toLocaleString()} steps - you've hit your daily goal!`);
-      } else if (stats.stepsToday >= 7000) {
-        insights.push(`👍 Good progress! ${stats.stepsToday.toLocaleString()} steps. ${(10000 - stats.stepsToday).toLocaleString()} more for 10k!`);
-      } else if (stats.stepsToday > 0) {
-        insights.push(`🚶 ${stats.stepsToday.toLocaleString()} steps so far. Try a short walk to boost your count!`);
-      }
+    setLoadingInsights(true);
+    try {
+      const insights = await GeminiService.generateInsights({
+        sleepHours: stats.sleepToday,
+        steps: stats.stepsToday,
+        expenses: stats.expensesToday,
+        meals: stats.mealsToday,
+        calories: stats.caloriesToday,
+      });
+      setAiInsights(insights);
+    } catch (err) {
+      setAiInsights([`⚠️ Could not load insights. Check your connection.`]);
+    } finally {
+      setLoadingInsights(false);
     }
-
-    if (stats.mealsToday > 0) {
-      if (stats.caloriesToday > 0) {
-        if (stats.caloriesToday < 1200) {
-          insights.push(`🍎 ${stats.caloriesToday} cal logged - might be low. Ensure you're eating enough.`);
-        } else if (stats.caloriesToday > 2500) {
-          insights.push(`🍔 ${stats.caloriesToday} cal today - consider balancing with more activity.`);
-        } else {
-          insights.push(`🥗 ${stats.caloriesToday} cal across ${stats.mealsToday} meals - looking balanced!`);
-        }
-      } else {
-        insights.push(`📝 ${stats.mealsToday} meals logged. Add calories for better nutrition tracking!`);
-      }
-    }
-
-    if (stats.water && stats.water > 0) {
-      if (stats.water >= 8) {
-        insights.push(`💧 Great hydration! ${stats.water} glasses of water today.`);
-      } else {
-        insights.push(`💧 ${stats.water} glasses so far. Aim for 8+ for optimal hydration.`);
-      }
-    }
-
-    if (stats.expensesToday > 0) {
-      insights.push(`💰 Spent ${formatINR(stats.expensesToday)} today (${formatINR(stats.expensesWeek)} this week).`);
-    }
-
-    if (stats.mood) {
-      const moodEmoji = stats.mood === 'great' ? '🤩' : stats.mood === 'good' ? '😊' : stats.mood === 'okay' ? '😐' : stats.mood === 'low' ? '😔' : '😫';
-      insights.push(`${moodEmoji} Your mood today: ${stats.mood}. ${stats.mood === 'great' || stats.mood === 'good' ? 'Keep it up!' : 'Hope it gets better!'}`);
-    }
-
-    return insights;
-  }, [stats]);
-
-  const displayInsights = aiInsights.length > 0 ? aiInsights : localInsights;
+  }, [stats, loadingInsights]);
 
   return (
     <div className="pb-4 fade-in safe-area-top">
       <div className="mb-6">
         <h1 className="text-3xl font-bold" style={{ color: 'var(--color-text)' }}>Dashboard</h1>
-        <p className="text-sm mt-1" style={{ color: 'var(--color-text-secondary)' }}>
-          Your life at a glance
-        </p>
+        <p className="text-sm mt-1" style={{ color: 'var(--color-text-secondary)' }}>Today's progress</p>
       </div>
 
-      {/* Top Stats Grid */}
+      {/* Top Stats */}
       <div className="grid grid-cols-2 gap-3 mb-6">
-        <StatCard icon={IndianRupee} label="Spent Today" value={formatINR(stats.expensesToday)} color="#ef4444" sub={`${formatINR(stats.expensesWeek)} this week`} />
-        <StatCard icon={Utensils} label="Meals Today" value={stats.mealsToday.toString()} color="#f59e0b" sub={`~${stats.caloriesToday} cal`} />
-        <StatCard icon={Moon} label="Sleep" value={`${stats.sleepToday}h`} color="#8b5cf6" sub={stats.sleepToday >= 7 ? 'Well rested 😊' : stats.sleepToday > 0 ? 'Could improve 😐' : 'Not logged'} />
-        <StatCard icon={Footprints} label="Steps" value={stats.stepsToday.toLocaleString()} color="#10b981" sub={stats.stepsToday >= 10000 ? 'Goal reached! 🎉' : `${Math.max(0, 10000 - stats.stepsToday).toLocaleString()} to goal`} />
+        <StatCard icon={IndianRupee} label="Spent" value={formatINR(stats.expensesToday)} color="#ef4444" />
+        <StatCard icon={Footprints} label="Steps" value={stats.stepsToday.toLocaleString()} color="#10b981" />
+        <StatCard icon={Utensils} label="Meals" value={stats.mealsToday.toString()} color="#f59e0b" />
+        <StatCard icon={Moon} label="Sleep" value={`${stats.sleepToday}h`} color="#8b5cf6" />
       </div>
 
-      {/* Health Quick Stats */}
-      {(stats.water || stats.mood || stats.energy) && (
-        <div className="grid grid-cols-3 gap-2 mb-6">
-          {stats.water !== undefined && stats.water > 0 && (
-            <div className="card p-3 text-center">
-              <Droplets className="w-5 h-5 mx-auto text-blue-500 mb-1" />
-              <p className="text-lg font-bold" style={{ color: 'var(--color-text)' }}>{stats.water}</p>
-              <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>Glasses</p>
-            </div>
-          )}
-          {stats.energy && (
-            <div className="card p-3 text-center">
-              <Zap className="w-5 h-5 mx-auto text-amber-500 mb-1" />
-              <p className="text-lg font-bold" style={{ color: 'var(--color-text)' }}>{stats.energy}/10</p>
-              <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>Energy</p>
-            </div>
-          )}
-          {stats.mood && (
-            <div className="card p-3 text-center">
-              <Heart className="w-5 h-5 mx-auto text-rose-500 mb-1" />
-              <p className="text-lg font-bold capitalize" style={{ color: 'var(--color-text)' }}>{stats.mood}</p>
-              <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>Mood</p>
-            </div>
-          )}
-        </div>
-      )}
+      {/* Exercise Table */}
+      <div className="card p-4 mb-6">
+        <h3 className="font-semibold mb-3 flex items-center gap-2" style={{ color: 'var(--color-text)' }}>
+          <Dumbbell className="w-4 h-4 text-indigo-500" /> Training & Reps
+        </h3>
+        {Object.keys(stats.exercises).length > 0 ? (
+          <div className="divide-y divide-var(--color-border)">
+            {Object.entries(stats.exercises).map(([name, count]) => (
+              <div key={name} className="py-2.5 flex justify-between items-center">
+                <span className="text-sm font-medium" style={{ color: 'var(--color-text-secondary)' }}>{name}</span>
+                <span className="text-sm font-bold px-3 py-1 rounded-full bg-indigo-50 text-indigo-600">{count} reps</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-center py-4 opacity-50">No bodyweight exercises logged yet</p>
+        )}
+      </div>
 
       {/* AI Insights */}
-      <div className="card p-4 mb-4" style={{ background: 'linear-gradient(135deg, rgba(99,102,241,0.05) 0%, rgba(139,92,246,0.05) 100%)' }}>
-        <h3 className="font-semibold mb-3 flex items-center gap-2" style={{ color: 'var(--color-text)' }}>
-          <Brain className="w-4 h-4 text-indigo-500" /> 
-          {hasGeminiApiKey() ? 'AI Insights' : 'Daily Insights'}
-          {loadingInsights && <Loader2 className="w-4 h-4 animate-spin text-indigo-500" />}
-        </h3>
-        <div className="space-y-2">
-          {displayInsights.length > 0 ? (
-            displayInsights.map((insight, i) => (
-              <div key={i} className="flex items-start gap-2 p-3 rounded-xl" style={{ background: 'var(--color-surface-alt)' }}>
+      <div className="card p-4 mb-6" style={{ background: 'linear-gradient(135deg, rgba(99,102,241,0.08) 0%, rgba(139,92,246,0.08) 100%)' }}>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-bold flex items-center gap-2" style={{ color: 'var(--color-text)' }}>
+            <Brain className="w-5 h-5 text-indigo-500" /> AI Insights
+          </h3>
+          <button 
+            className="ios-btn ios-btn-primary text-xs py-1.5 px-3" 
+            onClick={loadAiInsights}
+            disabled={loadingInsights}
+          >
+            {loadingInsights ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : '✨'} Refresh
+          </button>
+        </div>
+        <div className="space-y-2.5">
+          {aiInsights.length > 0 ? (
+            aiInsights.map((insight, i) => (
+              <div key={i} className="flex items-start gap-2.5 p-3 rounded-2xl bg-white/50 dark:bg-black/20">
                 <TrendingUp className="w-4 h-4 text-indigo-500 mt-0.5 flex-shrink-0" />
-                <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>{insight}</p>
+                <p className="text-sm leading-relaxed" style={{ color: 'var(--color-text-secondary)' }}>{insight}</p>
               </div>
             ))
           ) : (
             <p className="text-sm text-center py-4" style={{ color: 'var(--color-text-tertiary)' }}>
-              Start logging your activities to get personalized insights! ✨
+              Click refresh to get AI-powered coaching based on your activity.
             </p>
           )}
         </div>
-        {!hasGeminiApiKey() && displayInsights.length > 0 && (
-          <p className="text-xs text-center mt-3" style={{ color: 'var(--color-text-tertiary)' }}>
-            Add Gemini API key in Profile for smarter AI insights ✨
-          </p>
-        )}
-      </div>
-
-      {/* Sleep Chart */}
-      <div className="card p-4 mb-4">
-        <h3 className="font-semibold mb-3 flex items-center gap-2" style={{ color: 'var(--color-text)' }}>
-          <Moon className="w-4 h-4 text-purple-500" /> Sleep (Last 7 Days)
-        </h3>
-        {sleepChartData.some(d => d.hours > 0) ? (
-          <ResponsiveContainer width="100%" height={160}>
-            <AreaChart data={sleepChartData}>
-              <defs>
-                <linearGradient id="sleepGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.3} />
-                  <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <XAxis dataKey="day" tick={{ fill: '#94a3b8', fontSize: 12 }} axisLine={false} tickLine={false} />
-              <YAxis hide domain={[0, 12]} />
-              <Tooltip contentStyle={{ borderRadius: 12, border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} />
-              <Area type="monotone" dataKey="hours" stroke="#8b5cf6" fill="url(#sleepGrad)" strokeWidth={2} />
-            </AreaChart>
-          </ResponsiveContainer>
-        ) : (
-          <div className="h-40 flex items-center justify-center">
-            <p className="text-sm" style={{ color: 'var(--color-text-tertiary)' }}>No sleep data yet. Log your sleep to see trends!</p>
-          </div>
-        )}
-      </div>
-
-      {/* Steps Chart */}
-      <div className="card p-4 mb-4">
-        <h3 className="font-semibold mb-3 flex items-center gap-2" style={{ color: 'var(--color-text)' }}>
-          <Footprints className="w-4 h-4 text-emerald-500" /> Steps (Last 7 Days)
-        </h3>
-        {stepsChartData.some(d => d.steps > 0) ? (
-          <ResponsiveContainer width="100%" height={160}>
-            <BarChart data={stepsChartData}>
-              <XAxis dataKey="day" tick={{ fill: '#94a3b8', fontSize: 12 }} axisLine={false} tickLine={false} />
-              <YAxis hide />
-              <Tooltip contentStyle={{ borderRadius: 12, border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} />
-              <Bar dataKey="steps" fill="#10b981" radius={[6, 6, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        ) : (
-          <div className="h-40 flex items-center justify-center">
-            <p className="text-sm" style={{ color: 'var(--color-text-tertiary)' }}>No activity data yet. Log your steps!</p>
-          </div>
-        )}
-      </div>
-
-      {/* Expense Breakdown */}
-      <div className="card p-4 mb-4">
-        <h3 className="font-semibold mb-3 flex items-center gap-2" style={{ color: 'var(--color-text)' }}>
-          <IndianRupee className="w-4 h-4 text-red-500" /> Expenses This Week
-        </h3>
-        {expensePieData.length > 0 ? (
-          <div className="flex items-center gap-4">
-            <ResponsiveContainer width={140} height={140}>
-              <PieChart>
-                <Pie data={expensePieData} cx="50%" cy="50%" innerRadius={35} outerRadius={60} paddingAngle={3} dataKey="value">
-                  {expensePieData.map((_, i) => (
-                    <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
-                  ))}
-                </Pie>
-              </PieChart>
-            </ResponsiveContainer>
-            <div className="flex-1 space-y-1.5">
-              {expensePieData.map((item, i) => (
-                <div key={item.name} className="flex items-center gap-2">
-                  <div className="w-3 h-3 rounded-full" style={{ background: PIE_COLORS[i % PIE_COLORS.length] }} />
-                  <span className="text-xs flex-1" style={{ color: 'var(--color-text-secondary)' }}>{item.name}</span>
-                  <span className="text-xs font-medium" style={{ color: 'var(--color-text)' }}>{formatINR(item.value)}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : (
-          <div className="h-36 flex items-center justify-center">
-            <p className="text-sm" style={{ color: 'var(--color-text-tertiary)' }}>No expenses logged this week.</p>
-          </div>
-        )}
       </div>
     </div>
   );
 }
 
-function StatCard({ icon: Icon, label, value, color, sub }: {
+function StatCard({ icon: Icon, label, value, color }: {
   icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
-  label: string; value: string; color: string; sub: string;
+  label: string; value: string; color: string;
 }) {
   return (
-    <div className="card p-4">
+    <div className="card p-4 shadow-sm border-none bg-var(--color-surface)">
       <div className="flex items-center gap-2 mb-2">
         <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: `${color}15` }}>
           <Icon className="w-4 h-4" style={{ color }} />
         </div>
-        <span className="text-xs font-medium" style={{ color: 'var(--color-text-secondary)' }}>{label}</span>
+        <span className="text-xs font-semibold uppercase tracking-wider opacity-60">{label}</span>
       </div>
       <p className="text-2xl font-bold" style={{ color: 'var(--color-text)' }}>{value}</p>
-      <p className="text-xs mt-1" style={{ color: 'var(--color-text-tertiary)' }}>{sub}</p>
     </div>
   );
 }
