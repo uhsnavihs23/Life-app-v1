@@ -1,11 +1,12 @@
 /**
- * AppContext - Global State (local-first, Supabase sync in background)
+ * AppContext - Local-first state with Supabase cloud sync
  * 
- * ARCHITECTURE:
- * 1. All actions update React state immediately (optimistic)
- * 2. Debounced localStorage save (500ms)
- * 3. Supabase sync fires in background, never blocks UI
- * 4. Provider value is memoized to prevent full-app re-renders
+ * FLOW:
+ * 1. Mount → load from localStorage (instant)
+ * 2. After login → load from Supabase → MERGE with local (deduplicate by id)
+ * 3. Every action → update local state immediately → background sync to Supabase
+ * 4. localStorage save debounced 500ms
+ * 5. Provider value memoized to prevent re-renders
  */
 
 import React, { createContext, useContext, useReducer, useEffect, useCallback, useRef, useMemo } from 'react';
@@ -17,8 +18,6 @@ import type {
 } from '../models/types';
 import { StorageService } from '../services/StorageService';
 import { SupabaseDB, isSupabaseConfigured } from '../services/SupabaseService';
-
-// ─── State ───────────────────────────────────────────────
 
 interface AppState {
   user: User | null;
@@ -114,8 +113,6 @@ function reducer(state: AppState, action: Action): AppState {
   }
 }
 
-// ─── Context type ────────────────────────────────────────
-
 interface AppContextValue {
   state: AppState;
   dispatch: React.Dispatch<Action>;
@@ -137,39 +134,44 @@ interface AppContextValue {
 
 const AppContext = createContext<AppContextValue | null>(null);
 
-// ─── Helpers ─────────────────────────────────────────────
+/** Merge two arrays by id, removing duplicates. Newest first. */
+function mergeById<T extends { id: string; createdAt: string }>(local: T[], cloud: T[]): T[] {
+  const map = new Map<string, T>();
+  // Cloud first, then local overwrites (local is more recent)
+  for (const item of cloud) map.set(item.id, item);
+  for (const item of local) map.set(item.id, item);
+  return Array.from(map.values()).sort((a, b) => 
+    new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  );
+}
 
-/** Fire-and-forget Supabase sync. Logs errors, never blocks UI. */
+/** Fire-and-forget sync. Logs errors. */
 function bgSync(dispatch: React.Dispatch<Action>, fn: () => Promise<void>) {
   fn().catch(err => {
     const msg = err instanceof Error ? err.message : 'Sync failed';
-    console.warn('[Supabase sync]', msg);
+    console.warn('[sync]', msg);
     dispatch({ type: 'ADD_SYNC_ERROR', error: msg });
   });
 }
-
-// ─── Provider ────────────────────────────────────────────
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initialState);
   const cloudLoaded = useRef(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Keep a ref to current userId to avoid stale closures
   const userIdRef = useRef('');
   userIdRef.current = state.user?.id || '';
 
-  // ── Load local state once on mount ──
+  // ── Load local state on mount ──
   useEffect(() => {
     const saved = StorageService.load<Partial<AppState>>('app_state');
     if (saved) dispatch({ type: 'LOAD_STATE', state: saved });
   }, []);
 
-  // ── Debounced localStorage save ──
+  // ── Save to localStorage (debounced, skip transient fields) ──
   useEffect(() => {
     if (!state.isLoggedIn) return;
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
-      // Save everything except syncErrors and isLoading
       const { syncErrors: _se, isLoading: _il, ...rest } = state;
       StorageService.save('app_state', rest);
     }, 500);
@@ -181,7 +183,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     document.documentElement.classList.toggle('dark', state.darkMode);
   }, [state.darkMode]);
 
-  // ── Load cloud data ONCE after login ──
+  // ── Load from Supabase ONCE after login, MERGE with local ──
   const userId = state.user?.id;
   useEffect(() => {
     if (!state.isLoggedIn || !userId || !isSupabaseConfigured() || cloudLoaded.current) return;
@@ -193,31 +195,34 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       try {
         const cloud = await SupabaseDB.loadAllData(userId);
         if (cancelled) return;
-        // Only overwrite arrays that have cloud data
-        const merged: Partial<AppState> = {};
-        if (cloud.dailyLogs.length) merged.dailyLogs = cloud.dailyLogs;
-        if (cloud.expenses.length) merged.expenses = cloud.expenses;
-        if (cloud.foodEntries.length) merged.foodEntries = cloud.foodEntries;
-        if (cloud.sleepEntries.length) merged.sleepEntries = cloud.sleepEntries;
-        if (cloud.activities.length) merged.activities = cloud.activities;
-        if (cloud.reminders.length) merged.reminders = cloud.reminders;
-        if (cloud.listItems.length) merged.listItems = cloud.listItems;
-        if (cloud.healthMetrics.length) merged.healthMetrics = cloud.healthMetrics;
-        if (cloud.activityTimeline.length) merged.activityTimeline = cloud.activityTimeline;
-        if (Object.keys(merged).length) dispatch({ type: 'LOAD_STATE', state: merged });
+
+        // MERGE: combine local + cloud, deduplicate by id
+        dispatch({
+          type: 'LOAD_STATE',
+          state: {
+            dailyLogs: mergeById(state.dailyLogs, cloud.dailyLogs),
+            expenses: mergeById(state.expenses, cloud.expenses),
+            foodEntries: mergeById(state.foodEntries, cloud.foodEntries),
+            sleepEntries: mergeById(state.sleepEntries, cloud.sleepEntries),
+            activities: mergeById(state.activities, cloud.activities),
+            reminders: mergeById(state.reminders, cloud.reminders),
+            listItems: mergeById(state.listItems, cloud.listItems),
+            healthMetrics: mergeById(state.healthMetrics, cloud.healthMetrics),
+            activityTimeline: mergeById(state.activityTimeline, cloud.activityTimeline),
+          },
+        });
       } catch (e) {
         console.error('Cloud load error:', e);
+        // On error, keep local data as-is — don't lose anything
       }
       if (!cancelled) dispatch({ type: 'SET_LOADING', loading: false });
     })();
     return () => { cancelled = true; };
   }, [state.isLoggedIn, userId]);
 
-  // ── Reset on logout ──
   useEffect(() => { if (!state.isLoggedIn) cloudLoaded.current = false; }, [state.isLoggedIn]);
 
-  // ─── Action creators (all stable via useCallback) ─────
-
+  // ─── Action creators ─────
   const uid = useCallback(() => userIdRef.current, []);
 
   const addLog = useCallback((text: string, tag: EntryTag) => {
@@ -262,14 +267,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const toggleReminder = useCallback((id: string) => {
     dispatch({ type: 'TOGGLE_REMINDER', id });
-    // We read from fresh state via a micro-task
-    if (isSupabaseConfigured()) {
-      bgSync(dispatch, async () => {
-        // After dispatch, we don't know new value from closure, so just toggle
-        // Supabase upsert will fix it on next full load anyway
-        await SupabaseDB.updateReminderStatus(id, true); // best-effort
-      });
-    }
+    if (isSupabaseConfigured()) bgSync(dispatch, () => SupabaseDB.updateReminderStatus(id, true));
   }, []);
 
   const deleteReminder = useCallback((id: string) => {
@@ -304,7 +302,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (isSupabaseConfigured()) bgSync(dispatch, () => SupabaseDB.saveTimeline(entry));
   }, [uid]);
 
-  // ── Memoize provider value to prevent unnecessary re-renders ──
   const contextValue = useMemo<AppContextValue>(() => ({
     state, dispatch,
     addLog, addExpense, addFood, addSleep, addActivity, addFile,

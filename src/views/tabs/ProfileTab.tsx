@@ -13,8 +13,9 @@ import { setGeminiApiKey, hasGeminiApiKey, isApiKeyFromEnv } from '../../service
 import { isSupabaseConfigured, getSupabaseClient } from '../../services/SupabaseService';
 import {
   Moon, Sun, Bell, Key, LogOut,
-  ChevronRight, Shield, Info, Trash2, Check, ExternalLink, Sparkles, Database, Camera
+  ChevronRight, Shield, Info, Trash2, Check, ExternalLink, Sparkles, Database, Camera, Download
 } from 'lucide-react';
+import { formatINR, formatDate } from '../../models/types';
 
 export default function ProfileTab() {
   const { state, dispatch } = useApp();
@@ -78,21 +79,23 @@ export default function ProfileTab() {
     }
   };
 
+  const [isClearingData, setIsClearingData] = useState(false);
+
   const handleClearData = async () => {
-    if (!confirm('This will permanently delete ALL your data from this device and the cloud. Are you sure?')) return;
-    if (!confirm('This cannot be undone. Really delete everything?')) return;
+    if (!confirm('This will permanently delete ALL your data. Are you sure?')) return;
+    if (!confirm('This CANNOT be undone. Really delete everything?')) return;
     
-    // Clear localStorage
-    localStorage.clear();
+    setIsClearingData(true);
     
-    // Clear Supabase tables if configured
+    // 1. Clear Supabase tables first (while we still have user id)
     if (isSupabaseConfigured() && user?.id) {
       try {
         const client = getSupabaseClient();
         if (client) {
           const tables = ['daily_logs', 'expenses', 'food_entries', 'sleep_entries', 'activities', 'reminders', 'list_items', 'health_metrics', 'activity_timeline'];
+          // Use neq to match all rows for this user (supabase needs a filter)
           await Promise.allSettled(
-            tables.map(table => client.from(table).delete().eq('user_id', user.id))
+            tables.map(table => client.from(table).delete().eq('user_id', user!.id))
           );
         }
       } catch (e) {
@@ -100,7 +103,25 @@ export default function ProfileTab() {
       }
     }
     
+    // 2. Clear ALL localStorage keys
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key) keysToRemove.push(key);
+    }
+    keysToRemove.forEach(k => localStorage.removeItem(k));
+    
+    // 3. Clear chat messages too
+    localStorage.removeItem('lifelog_chat_messages');
+    localStorage.removeItem('lifelog_profile_image');
+    
+    setIsClearingData(false);
+    
+    // 4. Dispatch logout AFTER clearing
     dispatch({ type: 'LOGOUT' });
+    
+    // 5. Force reload to clear all in-memory state
+    window.location.reload();
   };
 
   return (
@@ -171,33 +192,8 @@ export default function ProfileTab() {
         )}
       </div>
 
-      {/* Stats Summary */}
-      <div className="grid grid-cols-4 gap-2 mb-6">
-        <div className="card p-2 text-center">
-          <p className="text-xl font-bold" style={{ color: 'var(--color-primary)' }}>
-            {state.dailyLogs.length}
-          </p>
-          <p className="text-[10px]" style={{ color: 'var(--color-text-tertiary)' }}>Logs</p>
-        </div>
-        <div className="card p-2 text-center">
-          <p className="text-xl font-bold text-red-500">
-            {state.expenses.length}
-          </p>
-          <p className="text-[10px]" style={{ color: 'var(--color-text-tertiary)' }}>Expenses</p>
-        </div>
-        <div className="card p-2 text-center">
-          <p className="text-xl font-bold text-amber-500">
-            {state.listItems.length}
-          </p>
-          <p className="text-[10px]" style={{ color: 'var(--color-text-tertiary)' }}>Lists</p>
-        </div>
-        <div className="card p-2 text-center">
-          <p className="text-xl font-bold text-emerald-500">
-            {state.activityTimeline.length}
-          </p>
-          <p className="text-[10px]" style={{ color: 'var(--color-text-tertiary)' }}>Activities</p>
-        </div>
-      </div>
+      {/* Export Data */}
+      <ExportSection state={state} />
 
       {/* API Key config — only show if not from env */}
       {!apiKeyFromEnv && !hasApiKey && (
@@ -305,7 +301,7 @@ export default function ProfileTab() {
           style={{ color: '#ef4444' }}
           onClick={handleClearData}
         >
-          <Trash2 className="w-4 h-4" /> Clear All Data
+          <Trash2 className="w-4 h-4" /> {isClearingData ? 'Clearing...' : 'Clear All Data'}
         </button>
         <button
           className="ios-btn ios-btn-secondary w-full"
@@ -345,6 +341,88 @@ function SettingRow({ icon: Icon, label, subtitle, color, action }: {
         <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>{subtitle}</p>
       </div>
       {action}
+    </div>
+  );
+}
+
+function ExportSection({ state }: { state: any }) {
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
+  const [exporting, setExporting] = useState(false);
+
+  useEffect(() => {
+    const today = new Date().toISOString().split('T')[0];
+    const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0];
+    setFromDate(weekAgo);
+    setToDate(today);
+  }, []);
+
+  const handleExport = (format: 'csv' | 'txt') => {
+    setExporting(true);
+    try {
+      const from = new Date(fromDate + 'T00:00:00');
+      const to = new Date(toDate + 'T23:59:59');
+      const inRange = (d: string) => { const dt = new Date(d); return dt >= from && dt <= to; };
+
+      const logs = state.dailyLogs.filter((l: any) => inRange(l.createdAt));
+      const expenses = state.expenses.filter((e: any) => inRange(e.createdAt));
+      const food = state.foodEntries.filter((f: any) => inRange(f.createdAt));
+      const sleep = state.sleepEntries.filter((s: any) => inRange(s.createdAt));
+      const activities = state.activities.filter((a: any) => inRange(a.createdAt));
+
+      let content = '';
+      if (format === 'csv') {
+        content = 'Type,Date,Details,Amount/Value\n';
+        logs.forEach((l: any) => content += `Log,${formatDate(l.createdAt)},"${l.text.replace(/"/g, '""')}",${l.tag}\n`);
+        expenses.forEach((e: any) => content += `Expense,${formatDate(e.createdAt)},"${e.category}: ${e.note}",${e.amount}\n`);
+        food.forEach((f: any) => content += `Food,${formatDate(f.createdAt)},"${f.name} (${f.portionSize})",${f.calories || ''}\n`);
+        sleep.forEach((s: any) => content += `Sleep,${formatDate(s.createdAt)},"${s.hours}h - ${s.quality}",${s.hours}\n`);
+        activities.forEach((a: any) => content += `Activity,${formatDate(a.createdAt)},"${a.steps} steps",${a.distanceKm || ''}\n`);
+      } else {
+        content = `LifeLog AI Export (${fromDate} to ${toDate})\n${'='.repeat(50)}\n\n`;
+        if (logs.length) { content += '📋 LOGS\n' + '-'.repeat(30) + '\n'; logs.forEach((l: any) => content += `${formatDate(l.createdAt)} [${l.tag}] ${l.text}\n`); content += '\n'; }
+        if (expenses.length) { const total = expenses.reduce((s: number, e: any) => s + e.amount, 0); content += `💰 EXPENSES (Total: ${formatINR(total)})\n` + '-'.repeat(30) + '\n'; expenses.forEach((e: any) => content += `${formatDate(e.createdAt)} ${formatINR(e.amount)} - ${e.category}${e.note ? ': ' + e.note : ''}\n`); content += '\n'; }
+        if (food.length) { content += '🍽️ FOOD\n' + '-'.repeat(30) + '\n'; food.forEach((f: any) => content += `${formatDate(f.createdAt)} ${f.name} (${f.portionSize})${f.calories ? ' ' + f.calories + ' cal' : ''}\n`); content += '\n'; }
+        if (sleep.length) { content += '😴 SLEEP\n' + '-'.repeat(30) + '\n'; sleep.forEach((s: any) => content += `${formatDate(s.createdAt)} ${s.hours}h - ${s.quality}\n`); content += '\n'; }
+        if (activities.length) { content += '🏃 ACTIVITY\n' + '-'.repeat(30) + '\n'; activities.forEach((a: any) => content += `${formatDate(a.createdAt)} ${a.steps} steps${a.distanceKm ? ' · ' + a.distanceKm + ' km' : ''}\n`); content += '\n'; }
+      }
+
+      const blob = new Blob([content], { type: format === 'csv' ? 'text/csv' : 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `lifelog_${fromDate}_to_${toDate}.${format}`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error('Export error:', e);
+    }
+    setExporting(false);
+  };
+
+  return (
+    <div className="card p-4 mb-6">
+      <h3 className="font-semibold mb-3 flex items-center gap-2" style={{ color: 'var(--color-text)' }}>
+        <Download className="w-4 h-4 text-indigo-500" /> Export Data
+      </h3>
+      <div className="grid grid-cols-2 gap-2 mb-3">
+        <div>
+          <label className="text-xs mb-1 block" style={{ color: 'var(--color-text-tertiary)' }}>From</label>
+          <input type="date" className="ios-input text-sm" value={fromDate} onChange={e => setFromDate(e.target.value)} />
+        </div>
+        <div>
+          <label className="text-xs mb-1 block" style={{ color: 'var(--color-text-tertiary)' }}>To</label>
+          <input type="date" className="ios-input text-sm" value={toDate} onChange={e => setToDate(e.target.value)} />
+        </div>
+      </div>
+      <div className="flex gap-2">
+        <button className="ios-btn ios-btn-secondary flex-1 text-sm" onClick={() => handleExport('csv')} disabled={exporting}>
+          📄 CSV
+        </button>
+        <button className="ios-btn ios-btn-secondary flex-1 text-sm" onClick={() => handleExport('txt')} disabled={exporting}>
+          📝 Text Report
+        </button>
+      </div>
     </div>
   );
 }

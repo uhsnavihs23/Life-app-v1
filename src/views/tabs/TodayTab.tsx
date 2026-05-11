@@ -126,17 +126,32 @@ export default function TodayTab() {
 
             case 'food':
               if (entry.foodItems && entry.foodItems.length > 0) {
-                entry.foodItems.forEach(item => {
-                  addFood(
-                    item.name,
-                    item.portion || '1 serving',
-                    item.calories > 0 ? item.calories : undefined,
-                    (entry.mealType as any) || 'snack',
-                    item.protein, item.carbs, item.fat
-                  );
-                });
+                // Create ONE combined meal entry, not individual items
+                const mealName = entry.foodItems.map(i => i.name).join(' + ');
                 const totalCal = entry.totalCalories || entry.foodItems.reduce((s, i) => s + (i.calories || 0), 0);
-                notes.push(`🍽️ ${entry.foodItems.length} item(s), ~${totalCal} cal`);
+                const totalProtein = entry.foodItems.reduce((s, i) => s + (i.protein || 0), 0);
+                const totalCarbs = entry.foodItems.reduce((s, i) => s + (i.carbs || 0), 0);
+                const totalFat = entry.foodItems.reduce((s, i) => s + (i.fat || 0), 0);
+                const portions = entry.foodItems.map(i => `${i.name}: ${i.portion}`).join(', ');
+
+                addFood(
+                  mealName,
+                  portions,
+                  totalCal > 0 ? totalCal : undefined,
+                  (entry.mealType as any) || 'snack',
+                  totalProtein > 0 ? totalProtein : undefined,
+                  totalCarbs > 0 ? totalCarbs : undefined,
+                  totalFat > 0 ? totalFat : undefined
+                );
+                
+                const nutritionLine = [
+                  totalCal > 0 ? `${totalCal} cal` : '',
+                  totalProtein > 0 ? `${totalProtein}g protein` : '',
+                  totalCarbs > 0 ? `${totalCarbs}g carbs` : '',
+                  totalFat > 0 ? `${totalFat}g fat` : '',
+                ].filter(Boolean).join(', ');
+                
+                notes.push(`🍽️ ${entry.mealType || 'meal'}: ${nutritionLine || mealName}`);
                 if (entry.nutritionSummary) notes.push(`📊 ${entry.nutritionSummary}`);
               }
               break;

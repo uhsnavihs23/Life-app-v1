@@ -134,15 +134,22 @@ Return ONLY valid JSON (no markdown, no backticks):
   "summary": "Brief one-line summary of what was logged"
 }
 
-RULES:
-- If the user mentions a past date like "on 8th May", set "date":"2026-05-08". Otherwise omit date field.
-- For food: ALWAYS estimate calories, protein, carbs, fat per item even if user didn't provide them. Use standard Indian food nutrition data.
-- For food: Provide nutritionSummary analyzing the meal (e.g. "High carb meal, moderate protein, consider adding vegetables")
-- For exercise: Estimate calories burned based on exercise type, sets, reps, and duration.
-- For walking/running with steps: Use type "activity" with steps and distanceKm, NOT "exercise".
-- For gym exercises (pushups, crunches, etc.): Use type "exercise" with exercises array.
-- Calculate sleep hours precisely from bed/wake times.
-- One log can produce multiple entries. "ate breakfast then walked 3km" → food entry + activity entry.`;
+CRITICAL RULES:
+1. DATE: If user mentions "on 8th May 2026" or "yesterday" or any past date, set "date" field as "YYYY-MM-DD". If no date mentioned, omit the date field entirely (it defaults to today).
+2. FOOD NUTRITION: You MUST estimate accurate calories, protein, carbs, fat for EVERY food item using standard Indian nutrition databases. Examples:
+   - Kala chana (black chickpeas): 1 bowl ≈ 350 cal, 20g protein, 45g carbs, 6g fat
+   - Halwa (suji): 1 serving ≈ 300 cal, 4g protein, 40g carbs, 15g fat  
+   - Amul protein shake 200ml: ≈ 140 cal, 20g protein, 15g carbs, 2g fat
+   - Roti: 1 piece ≈ 120 cal, 3g protein, 20g carbs, 3g fat
+   Be ACCURATE. Don't underestimate. If "20g protein shake 200ml" is mentioned, that means 20g protein content.
+3. FOOD: Provide nutritionSummary analyzing the MEAL as a whole (e.g. "High protein breakfast at ~790 cal. Good protein-to-carb ratio. Consider adding a fruit for vitamins.")
+4. FOOD: Set mealType correctly based on context: breakfast/lunch/dinner/snack.
+5. EXERCISE: Estimate calories burned accurately. 10 pushups burns ~3-5 cal. 3 sets of 10 pushups ≈ 15 cal. 15 crunches × 3 sets ≈ 20 cal. Be realistic, not inflated.
+6. WALKING/STEPS: Use type "activity" with steps and distanceKm. Estimate steps from distance if only km given (1 km ≈ 1300 steps).
+7. GYM EXERCISE: Use type "exercise" with exercises array containing name, sets, reps.
+8. SLEEP: Calculate hours precisely. "4:30 AM to 11 AM" = 6.5 hours. "11 PM to 7 AM" = 8 hours.
+9. MULTI-TYPE: One log can contain multiple types. "ate then walked" → food + activity. Parse ALL.
+10. EXPENSE: Extract amount in INR. "₹300 cab" → amount: 300, expenseCategory: "Transportation".`;
 
       const response = await callGemini(prompt);
       const match = response.match(/\{[\s\S]*\}/);
