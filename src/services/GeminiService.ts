@@ -135,7 +135,8 @@ Return ONLY valid JSON (no markdown, no backticks):
 }
 
 CRITICAL RULES:
-1. DATE: If user mentions "on 8th May 2026" or "yesterday" or any past date, set "date" field as "YYYY-MM-DD". If no date mentioned, omit the date field entirely (it defaults to today).
+1. DATE: If user mentions ANY specific date like "10th May 2026", "on 8th May", "yesterday", set "date" field as "YYYY-MM-DD". This is CRITICAL — expenses/activities on past dates must have the correct date. If no date mentioned, omit the date field.
+   Examples: "10th May 2026: 139₹ jio recharge" → date: "2026-05-10". "yesterday walked 3km" → calculate yesterday's date.
 2. FOOD NUTRITION: You MUST estimate accurate calories, protein, carbs, fat for EVERY food item using standard Indian nutrition databases. Examples:
    - Kala chana (black chickpeas): 1 bowl ≈ 350 cal, 20g protein, 45g carbs, 6g fat
    - Halwa (suji): 1 serving ≈ 300 cal, 4g protein, 40g carbs, 15g fat  
@@ -145,7 +146,7 @@ CRITICAL RULES:
 3. FOOD: Provide nutritionSummary analyzing the MEAL as a whole (e.g. "High protein breakfast at ~790 cal. Good protein-to-carb ratio. Consider adding a fruit for vitamins.")
 4. FOOD: Set mealType correctly based on context: breakfast/lunch/dinner/snack.
 5. EXERCISE: Estimate calories burned accurately. 10 pushups burns ~3-5 cal. 3 sets of 10 pushups ≈ 15 cal. 15 crunches × 3 sets ≈ 20 cal. Be realistic, not inflated.
-6. WALKING/STEPS: Use type "activity" with steps and distanceKm. Estimate steps from distance if only km given (1 km ≈ 1300 steps).
+6. WALKING/STEPS: Use type "activity" with steps and distanceKm. ALWAYS estimate steps from distance: 1 km ≈ 1300 steps. "walked 0.5 km" → steps: 650, distanceKm: 0.5. NEVER return steps: 0 if distance is given.
 7. GYM EXERCISE: Use type "exercise" with exercises array containing name, sets, reps.
 8. SLEEP: Calculate hours precisely. "4:30 AM to 11 AM" = 6.5 hours. "11 PM to 7 AM" = 8 hours.
 9. MULTI-TYPE: One log can contain multiple types. "ate then walked" → food + activity. Parse ALL.

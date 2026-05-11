@@ -1,13 +1,9 @@
 /**
- * TodayTab - Main daily logging screen
+ * TodayTab - Main logging screen
  * 
- * FIXES:
- * - Shorter placeholder text
- * - All quick-add forms render properly (food, sleep, activity)
- * - AI classifies free-text and creates structured entries
- * - Swipe left to delete
- * - File attachment button for photos/PDFs
- * - ₹ symbol properly padded
+ * KEY FIX: No more duplicate entries.
+ * When AI classifies successfully, ONLY structured entries are created.
+ * The raw text log is REPLACED, not duplicated.
  */
 
 import { useState, useRef, useCallback } from 'react';
@@ -33,26 +29,21 @@ export default function TodayTab() {
   const [classifyResult, setClassifyResult] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Expense
+  // Quick-add form states
   const [expAmount, setExpAmount] = useState('');
   const [expCategory, setExpCategory] = useState('Food & Dining');
   const [expNote, setExpNote] = useState('');
-  // Food
   const [foodName, setFoodName] = useState('');
   const [foodPortion, setFoodPortion] = useState('');
   const [foodCalories, setFoodCalories] = useState('');
   const [foodMeal, setFoodMeal] = useState<'breakfast' | 'lunch' | 'dinner' | 'snack'>('lunch');
-  // Sleep
   const [sleepHours, setSleepHours] = useState('7');
   const [sleepQuality, setSleepQuality] = useState<'poor' | 'fair' | 'good' | 'excellent'>('good');
-  // Activity
   const [actSteps, setActSteps] = useState('');
   const [actDistance, setActDistance] = useState('');
-  // Health
   const [healthMood, setHealthMood] = useState<'great' | 'good' | 'okay' | 'low' | 'bad'>('good');
   const [healthEnergy, setHealthEnergy] = useState('7');
   const [healthWater, setHealthWater] = useState('');
-  // List
   const [listType, setListType] = useState<'movie' | 'music' | 'book'>('movie');
   const [listTitle, setListTitle] = useState('');
 
@@ -67,106 +58,109 @@ export default function TodayTab() {
     ...todayLogs.map(l => ({ ...l, _type: 'log' as const })),
     ...todayExpenses.map(e => ({ ...e, _type: 'expense' as const, tag: 'expense' as EntryTag, text: `${formatINR(e.amount)} - ${e.category}${e.note ? ': ' + e.note : ''}` })),
     ...todayFood.map(f => ({ ...f, _type: 'food' as const, tag: 'food' as EntryTag, text: `${f.name} (${f.portionSize})${f.calories ? ' · ' + f.calories + ' cal' : ''}` })),
-    ...todaySleep.map(s => ({ ...s, _type: 'sleep' as const, tag: 'sleep' as EntryTag, text: `${s.hours}h sleep — ${s.quality}` })),
+    ...todaySleep.map(s => ({ ...s, _type: 'sleep' as const, tag: 'sleep' as EntryTag, text: `${s.hours}h sleep — ${s.quality}${s.bedTime ? ' (' + s.bedTime + '→' + s.wakeTime + ')' : ''}` })),
     ...todayActivity.map(a => ({ ...a, _type: 'activity' as const, tag: 'exercise' as EntryTag, text: `${a.steps.toLocaleString()} steps${a.distanceKm ? ' · ' + a.distanceKm + ' km' : ''}` })),
   ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
   const displayItems = showAllEntries ? allTodayItems : allTodayItems.slice(0, 8);
 
-  // Submit log with AI classification
+  /**
+   * CORE LOGIC: Submit free-text log
+   * 
+   * If AI is available:
+   *   1. Classify the text
+   *   2. Create ONLY structured entries (sleep, expense, food, etc.)
+   *   3. DO NOT also create a raw "general" log (no duplicates)
+   * 
+   * If AI is NOT available or fails:
+   *   1. Create a raw log entry as fallback
+   */
   const handleSubmitLog = async () => {
     if (!logText.trim()) return;
     const text = logText.trim();
     setLogText('');
     setClassifyResult('');
 
-    addLog(text, selectedTag);
-
-    // AI classification: parse free text into structured entries
-    if (hasGeminiApiKey()) {
-      setIsClassifying(true);
-      try {
-        const result = await GeminiService.classifyLog(text);
-        const notes: string[] = [];
-
-        for (const entry of result.entries) {
-          switch (entry.type) {
-            case 'sleep':
-              if (entry.sleepHours && entry.sleepHours > 0) {
-                addSleep(entry.sleepHours, (entry.sleepQuality as any) || 'good', entry.bedTime, entry.wakeTime);
-                notes.push(`😴 Sleep: ${entry.sleepHours}h${entry.bedTime ? ' (' + entry.bedTime + '→' + entry.wakeTime + ')' : ''}`);
-              }
-              break;
-
-            case 'activity':
-              if (entry.steps && entry.steps > 0) {
-                addActivity(entry.steps, entry.distanceKm);
-                notes.push(`🚶 ${entry.steps.toLocaleString()} steps${entry.distanceKm ? ' · ' + entry.distanceKm + ' km' : ''}`);
-              }
-              break;
-
-            case 'exercise':
-              if (entry.exercises && entry.exercises.length > 0) {
-                const detail = entry.exercises.map(ex => `${ex.name} ${ex.sets ? ex.sets + 'x' : ''}${ex.reps || ''}`).join(', ');
-                const logLine = `🏋️ ${detail}${entry.durationMinutes ? ' · ' + entry.durationMinutes + ' min' : ''}${entry.caloriesBurned ? ' · ~' + entry.caloriesBurned + ' cal' : ''}`;
-                addLog(logLine, 'exercise');
-                notes.push(`💪 Exercise: ${entry.exercises.length} exercises${entry.caloriesBurned ? ', ~' + entry.caloriesBurned + ' cal burned' : ''}`);
-              } else if (entry.exerciseDetails) {
-                addLog(`🏋️ ${entry.exerciseDetails}${entry.caloriesBurned ? ' · ~' + entry.caloriesBurned + ' cal' : ''}`, 'exercise');
-                notes.push(`💪 Exercise logged`);
-              }
-              break;
-
-            case 'expense':
-              if (entry.amount && entry.amount > 0) {
-                addExpense(entry.amount, entry.expenseCategory || 'Other', text);
-                notes.push(`💰 Expense: ₹${entry.amount}`);
-              }
-              break;
-
-            case 'food':
-              if (entry.foodItems && entry.foodItems.length > 0) {
-                // Create ONE combined meal entry, not individual items
-                const mealName = entry.foodItems.map(i => i.name).join(' + ');
-                const totalCal = entry.totalCalories || entry.foodItems.reduce((s, i) => s + (i.calories || 0), 0);
-                const totalProtein = entry.foodItems.reduce((s, i) => s + (i.protein || 0), 0);
-                const totalCarbs = entry.foodItems.reduce((s, i) => s + (i.carbs || 0), 0);
-                const totalFat = entry.foodItems.reduce((s, i) => s + (i.fat || 0), 0);
-                const portions = entry.foodItems.map(i => `${i.name}: ${i.portion}`).join(', ');
-
-                addFood(
-                  mealName,
-                  portions,
-                  totalCal > 0 ? totalCal : undefined,
-                  (entry.mealType as any) || 'snack',
-                  totalProtein > 0 ? totalProtein : undefined,
-                  totalCarbs > 0 ? totalCarbs : undefined,
-                  totalFat > 0 ? totalFat : undefined
-                );
-                
-                const nutritionLine = [
-                  totalCal > 0 ? `${totalCal} cal` : '',
-                  totalProtein > 0 ? `${totalProtein}g protein` : '',
-                  totalCarbs > 0 ? `${totalCarbs}g carbs` : '',
-                  totalFat > 0 ? `${totalFat}g fat` : '',
-                ].filter(Boolean).join(', ');
-                
-                notes.push(`🍽️ ${entry.mealType || 'meal'}: ${nutritionLine || mealName}`);
-                if (entry.nutritionSummary) notes.push(`📊 ${entry.nutritionSummary}`);
-              }
-              break;
-          }
-        }
-
-        if (notes.length > 0) {
-          setClassifyResult(notes.join(' · '));
-        } else if (result.summary) {
-          setClassifyResult(result.summary);
-        }
-      } catch { /* log already saved */ }
-      setIsClassifying(false);
-      setTimeout(() => setClassifyResult(''), 8000);
+    // If AI not available or user selected a specific tag, just add raw log
+    if (!hasGeminiApiKey() || selectedTag !== 'general') {
+      addLog(text, selectedTag);
+      return;
     }
+
+    // AI classification
+    setIsClassifying(true);
+    try {
+      const result = await GeminiService.classifyLog(text);
+      const notes: string[] = [];
+      let addedStructured = false;
+
+      for (const entry of result.entries) {
+        switch (entry.type) {
+          case 'sleep':
+            if (entry.sleepHours && entry.sleepHours > 0) {
+              addSleep(entry.sleepHours, (entry.sleepQuality as any) || 'good', entry.bedTime, entry.wakeTime);
+              notes.push(`😴 ${entry.sleepHours}h sleep${entry.bedTime ? ' (' + entry.bedTime + '→' + entry.wakeTime + ')' : ''}`);
+              addedStructured = true;
+            }
+            break;
+
+          case 'activity':
+            if ((entry.steps && entry.steps > 0) || (entry.distanceKm && entry.distanceKm > 0)) {
+              // If only distance given, estimate steps (1km ≈ 1300 steps)
+              const steps = entry.steps && entry.steps > 0 ? entry.steps : Math.round((entry.distanceKm || 0) * 1300);
+              addActivity(steps, entry.distanceKm);
+              notes.push(`🚶 ${steps.toLocaleString()} steps${entry.distanceKm ? ' · ' + entry.distanceKm + ' km' : ''}`);
+              addedStructured = true;
+            }
+            break;
+
+          case 'exercise':
+            if (entry.exercises && entry.exercises.length > 0) {
+              const detail = entry.exercises.map(ex => `${ex.name} ${ex.sets ? ex.sets + 'x' : ''}${ex.reps || ''}`).join(', ');
+              addLog(`🏋️ ${detail}${entry.durationMinutes ? ' · ' + entry.durationMinutes + ' min' : ''}${entry.caloriesBurned ? ' · ~' + entry.caloriesBurned + ' cal' : ''}`, 'exercise');
+              notes.push(`💪 ${entry.exercises.length} exercises${entry.caloriesBurned ? ', ~' + entry.caloriesBurned + ' cal' : ''}`);
+              addedStructured = true;
+            }
+            break;
+
+          case 'expense':
+            if (entry.amount && entry.amount > 0) {
+              addExpense(entry.amount, entry.expenseCategory || 'Other', text);
+              notes.push(`💰 ₹${entry.amount} - ${entry.expenseCategory || 'Other'}${entry.date ? ' (for ' + entry.date + ')' : ''}`);
+              addedStructured = true;
+            }
+            break;
+
+          case 'food':
+            if (entry.foodItems && entry.foodItems.length > 0) {
+              const mealName = entry.foodItems.map(i => i.name).join(' + ');
+              const totalCal = entry.totalCalories || entry.foodItems.reduce((s, i) => s + (i.calories || 0), 0);
+              const totalProtein = entry.foodItems.reduce((s, i) => s + (i.protein || 0), 0);
+              const totalCarbs = entry.foodItems.reduce((s, i) => s + (i.carbs || 0), 0);
+              const totalFat = entry.foodItems.reduce((s, i) => s + (i.fat || 0), 0);
+              const portions = entry.foodItems.map(i => `${i.name}: ${i.portion}`).join(', ');
+              addFood(mealName, portions, totalCal > 0 ? totalCal : undefined, (entry.mealType as any) || 'snack', totalProtein || undefined, totalCarbs || undefined, totalFat || undefined);
+              notes.push(`🍽️ ${entry.mealType || 'meal'}: ~${totalCal} cal`);
+              if (entry.nutritionSummary) notes.push(`📊 ${entry.nutritionSummary}`);
+              addedStructured = true;
+            }
+            break;
+        }
+      }
+
+      // Only add raw log if AI couldn't create any structured entry
+      if (!addedStructured) {
+        addLog(text, 'general');
+        if (result.summary) notes.push(result.summary);
+      }
+
+      if (notes.length > 0) setClassifyResult(notes.join(' · '));
+    } catch {
+      // AI failed — add as raw log
+      addLog(text, 'general');
+    }
+    setIsClassifying(false);
+    setTimeout(() => setClassifyResult(''), 8000);
   };
 
   const handleSubmitExpense = () => {
@@ -175,32 +169,27 @@ export default function TodayTab() {
     addExpense(amt, expCategory, expNote);
     setExpAmount(''); setExpNote(''); setQuickAdd(null);
   };
-
   const handleSubmitFood = () => {
     if (!foodName.trim()) return;
     addFood(foodName.trim(), foodPortion || '1 serving', foodCalories ? parseInt(foodCalories) : undefined, foodMeal);
     setFoodName(''); setFoodPortion(''); setFoodCalories(''); setQuickAdd(null);
   };
-
   const handleSubmitSleep = () => {
     const h = parseFloat(sleepHours);
     if (isNaN(h) || h <= 0) return;
     addSleep(h, sleepQuality);
     setQuickAdd(null);
   };
-
   const handleSubmitActivity = () => {
     const s = parseInt(actSteps);
     if (isNaN(s) || s <= 0) return;
     addActivity(s, actDistance ? parseFloat(actDistance) : undefined);
     setActSteps(''); setActDistance(''); setQuickAdd(null);
   };
-
   const handleSubmitHealth = () => {
     addHealthMetrics({ mood: healthMood, energyLevel: parseInt(healthEnergy), waterIntake: healthWater ? parseInt(healthWater) : undefined });
     setQuickAdd(null);
   };
-
   const handleSubmitList = () => {
     if (!listTitle.trim()) return;
     addListItem(listType, listTitle.trim());
@@ -212,11 +201,7 @@ export default function TodayTab() {
     if (!files) return;
     Array.from(files).forEach(file => {
       const reader = new FileReader();
-      reader.onload = () => {
-        const url = reader.result as string;
-        const isPdf = file.type === 'application/pdf';
-        addFile(file.name, isPdf ? 'pdf' : 'image', url);
-      };
+      reader.onload = () => addFile(file.name, file.type === 'application/pdf' ? 'pdf' : 'image', reader.result as string);
       reader.readAsDataURL(file);
     });
     e.target.value = '';
@@ -224,12 +209,9 @@ export default function TodayTab() {
 
   const handleDeleteItem = useCallback((item: any) => {
     if (!confirm('Delete this entry?')) return;
-    const t = item._type;
-    if (t === 'log') dispatch({ type: 'DELETE_LOG', id: item.id } as any);
-    else if (t === 'expense') dispatch({ type: 'DELETE_EXPENSE', id: item.id } as any);
-    else if (t === 'food') dispatch({ type: 'DELETE_FOOD', id: item.id } as any);
-    else if (t === 'sleep') dispatch({ type: 'DELETE_SLEEP', id: item.id } as any);
-    else if (t === 'activity') dispatch({ type: 'DELETE_ACTIVITY', id: item.id } as any);
+    const map: Record<string, string> = { log: 'DELETE_LOG', expense: 'DELETE_EXPENSE', food: 'DELETE_FOOD', sleep: 'DELETE_SLEEP', activity: 'DELETE_ACTIVITY' };
+    const actionType = map[item._type];
+    if (actionType) dispatch({ type: actionType, id: item.id } as any);
   }, [dispatch]);
 
   return (
@@ -242,11 +224,8 @@ export default function TodayTab() {
         </p>
       </div>
 
-      {/* Classification feedback */}
       {classifyResult && (
-        <div className="card p-3 mb-4 text-sm text-indigo-600 dark:text-indigo-400 flex items-center gap-2"
-          style={{ background: 'rgba(99,102,241,0.08)' }}>
-          <Loader2 className="w-4 h-4 flex-shrink-0" style={{ display: isClassifying ? 'block' : 'none' }} />
+        <div className="card p-3 mb-4 text-sm text-indigo-600 dark:text-indigo-400" style={{ background: 'rgba(99,102,241,0.08)' }}>
           {classifyResult}
         </div>
       )}
@@ -274,17 +253,14 @@ export default function TodayTab() {
       {/* Log Input */}
       <div className="card p-4 mb-4">
         <div className="flex gap-2 mb-3">
-          <textarea className="ios-input flex-1 resize-none" style={{ minHeight: 56 }}
-            placeholder="What's happening?"
+          <textarea className="ios-input flex-1 resize-none" style={{ minHeight: 56 }} placeholder="What's happening?"
             value={logText} onChange={e => setLogText(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmitLog(); } }} />
           <div className="flex flex-col gap-1 self-end">
-            <button className="ios-btn ios-btn-primary" style={{ padding: '10px 12px' }}
-              onClick={handleSubmitLog} disabled={!logText.trim() || isClassifying}>
+            <button className="ios-btn ios-btn-primary" style={{ padding: '10px 12px' }} onClick={handleSubmitLog} disabled={!logText.trim() || isClassifying}>
               {isClassifying ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
             </button>
-            <button className="p-2 rounded-xl" style={{ background: 'var(--color-surface-alt)' }}
-              onClick={() => fileInputRef.current?.click()}>
+            <button className="p-2 rounded-xl" style={{ background: 'var(--color-surface-alt)' }} onClick={() => fileInputRef.current?.click()}>
               <Paperclip className="w-4 h-4" style={{ color: 'var(--color-text-tertiary)' }} />
             </button>
           </div>
@@ -347,15 +323,12 @@ export default function TodayTab() {
                 <input className="ios-input" style={{ paddingLeft: 36 }} type="number" inputMode="decimal" placeholder="Enter amount" value={expAmount} onChange={e => setExpAmount(e.target.value)} autoFocus />
               </div>
               <select className="ios-input" value={expCategory} onChange={e => setExpCategory(e.target.value)}>
-                {['Food & Dining', 'Transportation', 'Shopping', 'Bills & Utilities', 'Entertainment', 'Healthcare', 'Education', 'Groceries', 'Travel', 'Other'].map(c => (
-                  <option key={c} value={c}>{c}</option>
-                ))}
+                {['Food & Dining', 'Transportation', 'Shopping', 'Bills & Utilities', 'Entertainment', 'Healthcare', 'Education', 'Groceries', 'Travel', 'Recharge', 'Subscriptions', 'Other'].map(c => <option key={c} value={c}>{c}</option>)}
               </select>
               <input className="ios-input" placeholder="Note (optional)" value={expNote} onChange={e => setExpNote(e.target.value)} />
               <button className="ios-btn ios-btn-primary w-full" onClick={handleSubmitExpense} disabled={!expAmount || parseFloat(expAmount) <= 0}><Plus className="w-4 h-4" /> Add Expense</button>
             </div>
           )}
-
           {quickAdd === 'food' && (
             <div className="space-y-3">
               <input className="ios-input" placeholder="What did you eat?" value={foodName} onChange={e => setFoodName(e.target.value)} autoFocus />
@@ -371,11 +344,10 @@ export default function TodayTab() {
               <button className="ios-btn ios-btn-primary w-full" onClick={handleSubmitFood} disabled={!foodName.trim()}><Plus className="w-4 h-4" /> Add Food</button>
             </div>
           )}
-
           {quickAdd === 'sleep' && (
             <div className="space-y-3">
               <div>
-                <label className="block text-sm font-medium mb-2" style={{ color: 'var(--color-text-secondary)' }}>Hours slept: <strong className="text-purple-500">{sleepHours}h</strong></label>
+                <label className="block text-sm font-medium mb-2" style={{ color: 'var(--color-text-secondary)' }}>Hours: <strong className="text-purple-500">{sleepHours}h</strong></label>
                 <input type="range" min="1" max="14" step="0.5" value={sleepHours} onChange={e => setSleepHours(e.target.value)} className="w-full accent-purple-500" />
               </div>
               <div>
@@ -391,7 +363,6 @@ export default function TodayTab() {
               <button className="ios-btn ios-btn-primary w-full" onClick={handleSubmitSleep}><Plus className="w-4 h-4" /> Add Sleep</button>
             </div>
           )}
-
           {quickAdd === 'activity' && (
             <div className="space-y-3">
               <input className="ios-input" type="number" inputMode="numeric" placeholder="Number of steps" value={actSteps} onChange={e => setActSteps(e.target.value)} autoFocus />
@@ -399,11 +370,10 @@ export default function TodayTab() {
               <button className="ios-btn ios-btn-primary w-full" onClick={handleSubmitActivity} disabled={!actSteps || parseInt(actSteps) <= 0}><Plus className="w-4 h-4" /> Add Activity</button>
             </div>
           )}
-
           {quickAdd === 'health' && (
             <div className="space-y-3">
               <div>
-                <label className="block text-sm font-medium mb-2" style={{ color: 'var(--color-text-secondary)' }}>How are you feeling?</label>
+                <label className="block text-sm font-medium mb-2" style={{ color: 'var(--color-text-secondary)' }}>How do you feel?</label>
                 <div className="flex gap-2 flex-wrap">
                   {(['great', 'good', 'okay', 'low', 'bad'] as const).map(m => (
                     <button key={m} className={`tag-chip ${healthMood === m ? 'selected' : ''}`} onClick={() => setHealthMood(m)}>
@@ -423,7 +393,6 @@ export default function TodayTab() {
               <button className="ios-btn ios-btn-primary w-full" onClick={handleSubmitHealth}><Heart className="w-4 h-4" /> Log Health</button>
             </div>
           )}
-
           {quickAdd === 'list' && (
             <div className="space-y-3">
               <div className="flex gap-2">
@@ -489,26 +458,16 @@ function SwipeableCard({ children, onDelete }: { children: React.ReactNode; onDe
   const [offsetX, setOffsetX] = useState(0);
   const startX = useRef(0);
   const dragging = useRef(false);
-
   const onTouchStart = (e: React.TouchEvent) => { startX.current = e.touches[0].clientX; dragging.current = true; };
-  const onTouchMove = (e: React.TouchEvent) => {
-    if (!dragging.current) return;
-    const diff = e.touches[0].clientX - startX.current;
-    if (diff < 0 && diff > -100) setOffsetX(diff);
-  };
-  const onTouchEnd = () => {
-    dragging.current = false;
-    setOffsetX(offsetX < -50 ? -76 : 0);
-  };
-
+  const onTouchMove = (e: React.TouchEvent) => { if (!dragging.current) return; const d = e.touches[0].clientX - startX.current; if (d < 0 && d > -100) setOffsetX(d); };
+  const onTouchEnd = () => { dragging.current = false; setOffsetX(offsetX < -50 ? -76 : 0); };
   return (
     <div className="relative overflow-hidden rounded-2xl" style={{ border: '1px solid var(--color-border)' }}>
       <div className="absolute right-0 top-0 bottom-0 w-20 flex items-center justify-center" style={{ background: '#ef4444' }}>
         <button onClick={onDelete} className="p-2 text-white"><Trash2 className="w-5 h-5" /></button>
       </div>
       <div className="relative p-3" style={{ transform: `translateX(${offsetX}px)`, background: 'var(--color-surface)', transition: dragging.current ? 'none' : 'transform 200ms' }}
-        onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}
-        onClick={() => { if (offsetX < 0) setOffsetX(0); }}>
+        onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd} onClick={() => { if (offsetX < 0) setOffsetX(0); }}>
         {children}
       </div>
     </div>

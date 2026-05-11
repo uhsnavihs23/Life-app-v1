@@ -10,7 +10,8 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import type {
   DailyLogEntry, ExpenseEntry, FoodEntry, SleepEntry,
-  ActivityEntry, Reminder, ListItem, HealthMetrics, ActivityTimeline
+  ActivityEntry, Reminder, ListItem, HealthMetrics, ActivityTimeline,
+  HealthProfile,
 } from '../models/types';
 
 // Get from environment variables (set in Vercel)
@@ -453,6 +454,7 @@ export const SupabaseDB = {
       mood: metrics.mood,
       energy_level: metrics.energyLevel,
       stress_level: metrics.stressLevel,
+      symptoms: metrics.symptoms,
       notes: metrics.notes,
       created_at: metrics.createdAt,
     });
@@ -532,6 +534,60 @@ export const SupabaseDB = {
       metadata: row.metadata,
       createdAt: row.created_at,
     }));
+  },
+
+  // ---- Health Profile ----
+  async saveHealthProfile(profile: HealthProfile) {
+    const client = getSupabaseClient();
+    if (!client) return;
+    const { error } = await client.from('health_profiles').upsert({
+      user_id: profile.userId,
+      height_cm: profile.heightCm,
+      weight_kg: profile.weightKg,
+      age: profile.age,
+      gender: profile.gender,
+      activity_level: profile.activityLevel,
+      medical_conditions: profile.medicalConditions,
+      allergies: profile.allergies,
+      diet_preference: profile.dietPreference,
+      fitness_goal: profile.fitnessGoal,
+      daily_calorie_target: profile.dailyCalorieTarget,
+      daily_protein_target: profile.dailyProteinTarget,
+      daily_steps_target: profile.dailyStepsTarget,
+      daily_water_target: profile.dailyWaterTarget,
+      daily_sleep_target: profile.dailySleepTarget,
+      updated_at: profile.updatedAt,
+    });
+    if (error) console.error('Error saving health profile:', error);
+  },
+
+  async getHealthProfile(userId: string): Promise<HealthProfile | null> {
+    const client = getSupabaseClient();
+    if (!client) return null;
+    const { data, error } = await client
+      .from('health_profiles')
+      .select('*')
+      .eq('user_id', userId)
+      .maybeSingle();
+    if (error || !data) return null;
+    return {
+      userId: data.user_id,
+      heightCm: data.height_cm,
+      weightKg: data.weight_kg,
+      age: data.age,
+      gender: data.gender,
+      activityLevel: data.activity_level,
+      medicalConditions: data.medical_conditions || '',
+      allergies: data.allergies || '',
+      dietPreference: data.diet_preference || 'non-veg',
+      fitnessGoal: data.fitness_goal || 'general_fitness',
+      dailyCalorieTarget: data.daily_calorie_target,
+      dailyProteinTarget: data.daily_protein_target,
+      dailyStepsTarget: data.daily_steps_target,
+      dailyWaterTarget: data.daily_water_target,
+      dailySleepTarget: data.daily_sleep_target,
+      updatedAt: data.updated_at,
+    };
   },
 
   // ---- Load ALL data for a user ----

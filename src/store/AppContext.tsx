@@ -15,6 +15,7 @@ import type {
   User, DailyLogEntry, ExpenseEntry, FoodEntry,
   SleepEntry, ActivityEntry, FileAttachment, Reminder,
   ChatMessage, EntryTag, ListItem, HealthMetrics, ActivityTimeline,
+  HealthProfile,
 } from '../models/types';
 import { StorageService } from '../services/StorageService';
 import { SupabaseDB, isSupabaseConfigured } from '../services/SupabaseService';
@@ -34,6 +35,7 @@ interface AppState {
   chatMessages: ChatMessage[];
   listItems: ListItem[];
   healthMetrics: HealthMetrics[];
+  healthProfile: HealthProfile | null;
   activityTimeline: ActivityTimeline[];
   syncErrors: string[];
 }
@@ -67,13 +69,14 @@ type Action =
   | { type: 'DELETE_EXPENSE'; id: string }
   | { type: 'DELETE_FOOD'; id: string }
   | { type: 'DELETE_SLEEP'; id: string }
-  | { type: 'DELETE_ACTIVITY'; id: string };
+  | { type: 'DELETE_ACTIVITY'; id: string }
+  | { type: 'SET_HEALTH_PROFILE'; profile: HealthProfile };
 
 const initialState: AppState = {
   user: null, isLoggedIn: false, darkMode: false, isLoading: false,
   dailyLogs: [], expenses: [], foodEntries: [], sleepEntries: [],
   activities: [], files: [], reminders: [], chatMessages: [],
-  listItems: [], healthMetrics: [], activityTimeline: [], syncErrors: [],
+  listItems: [], healthMetrics: [], healthProfile: null, activityTimeline: [], syncErrors: [],
 };
 
 function reducer(state: AppState, action: Action): AppState {
@@ -109,6 +112,7 @@ function reducer(state: AppState, action: Action): AppState {
     case 'DELETE_FOOD': return { ...state, foodEntries: state.foodEntries.filter(f => f.id !== action.id) };
     case 'DELETE_SLEEP': return { ...state, sleepEntries: state.sleepEntries.filter(s => s.id !== action.id) };
     case 'DELETE_ACTIVITY': return { ...state, activities: state.activities.filter(a => a.id !== action.id) };
+    case 'SET_HEALTH_PROFILE': return { ...state, healthProfile: action.profile };
     default: return state;
   }
 }
@@ -130,6 +134,7 @@ interface AppContextValue {
   addTimeline: (action: string, category: ActivityTimeline['category'], details: string, metadata?: Record<string, unknown>) => void;
   toggleReminder: (id: string) => void;
   deleteReminder: (id: string) => void;
+  setHealthProfile: (profile: HealthProfile) => void;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -302,14 +307,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (isSupabaseConfigured()) bgSync(dispatch, () => SupabaseDB.saveTimeline(entry));
   }, [uid]);
 
+  const setHealthProfile = useCallback((profile: HealthProfile) => {
+    dispatch({ type: 'SET_HEALTH_PROFILE', profile });
+    if (isSupabaseConfigured()) bgSync(dispatch, () => SupabaseDB.saveHealthProfile(profile));
+  }, []);
+
   const contextValue = useMemo<AppContextValue>(() => ({
     state, dispatch,
     addLog, addExpense, addFood, addSleep, addActivity, addFile,
     addReminder, addChatMessage, addListItem, deleteListItem,
-    addHealthMetrics, addTimeline, toggleReminder, deleteReminder,
+    addHealthMetrics, addTimeline, toggleReminder, deleteReminder, setHealthProfile,
   }), [state, addLog, addExpense, addFood, addSleep, addActivity, addFile,
     addReminder, addChatMessage, addListItem, deleteListItem,
-    addHealthMetrics, addTimeline, toggleReminder, deleteReminder]);
+    addHealthMetrics, addTimeline, toggleReminder, deleteReminder, setHealthProfile]);
 
   return <AppContext.Provider value={contextValue}>{children}</AppContext.Provider>;
 }

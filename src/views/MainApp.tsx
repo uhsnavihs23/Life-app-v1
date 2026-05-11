@@ -14,7 +14,7 @@
 import { useState } from 'react';
 import {
   PenLine, LayoutDashboard, Clock,
-  Sparkles, UserCircle, ListMusic, Bell
+  Sparkles, UserCircle, ListMusic, Bell, HeartPulse
 } from 'lucide-react';
 import TodayTab from './tabs/TodayTab';
 import DashboardTab from './tabs/DashboardTab';
@@ -23,8 +23,9 @@ import ListsTab from './tabs/ListsTab';
 import RemindersTab from './tabs/RemindersTab';
 import SearchTab from './tabs/SearchTab';
 import ProfileTab from './tabs/ProfileTab';
+import HealthTab from './tabs/HealthTab';
 
-type TabId = 'today' | 'dashboard' | 'history' | 'lists' | 'reminders' | 'search' | 'profile';
+type TabId = 'today' | 'dashboard' | 'health' | 'history' | 'lists' | 'reminders' | 'search' | 'profile';
 
 interface Tab {
   id: TabId;
@@ -34,12 +35,13 @@ interface Tab {
 
 const TABS: Tab[] = [
   { id: 'today', label: 'Today', icon: PenLine },
-  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { id: 'dashboard', label: 'Stats', icon: LayoutDashboard },
+  { id: 'health', label: 'Health', icon: HeartPulse },
   { id: 'history', label: 'History', icon: Clock },
-  { id: 'lists', label: 'Lists', icon: ListMusic },
   { id: 'reminders', label: 'Reminders', icon: Bell },
   { id: 'search', label: 'AI', icon: Sparkles },
-  { id: 'profile', label: 'Profile', icon: UserCircle },
+  { id: 'lists', label: 'Lists', icon: ListMusic },
+  { id: 'profile', label: 'Me', icon: UserCircle },
 ];
 
 export default function MainApp() {
@@ -49,6 +51,7 @@ export default function MainApp() {
     switch (activeTab) {
       case 'today': return <TodayTab />;
       case 'dashboard': return <DashboardTab />;
+      case 'health': return <HealthTab />;
       case 'history': return <HistoryTab />;
       case 'lists': return <ListsTab />;
       case 'reminders': return <RemindersTab />;

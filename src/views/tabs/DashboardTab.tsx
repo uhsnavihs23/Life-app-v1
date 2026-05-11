@@ -15,7 +15,7 @@ import { GeminiService, hasGeminiApiKey } from '../../services/GeminiService';
 import { format, subDays, startOfWeek, isAfter } from 'date-fns';
 import {
   BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip,
-  AreaChart, Area, PieChart, Pie, Cell,
+  PieChart, Pie, Cell,
 } from 'recharts';
 import { TrendingUp, IndianRupee, Utensils, Moon, Footprints, Brain, Heart, Droplets, Zap, Loader2 } from 'lucide-react';
 
@@ -87,19 +87,23 @@ export default function DashboardTab() {
     });
   }, [stats, loadingInsights, exerciseSummary, foodSummary]);
 
-  // Sleep data for chart (last 7 days)
+  // Chart range state
+  const [sleepRange, setSleepRange] = useState(7);
+  const [stepsRange, setStepsRange] = useState(7);
+
+  // Sleep data for chart
   const sleepChartData = useMemo(() => {
     const days = [];
-    for (let i = 6; i >= 0; i--) {
+    for (let i = sleepRange - 1; i >= 0; i--) {
       const d = format(subDays(new Date(), i), 'yyyy-MM-dd');
       const entry = state.sleepEntries.find(s => s.date === d);
       days.push({
-        day: format(subDays(new Date(), i), 'EEE'),
-        hours: entry ? entry.hours : 0,
+        day: format(subDays(new Date(), i), 'd MMM'),
+        hours: entry ? Math.round(entry.hours * 10) / 10 : 0,
       });
     }
     return days;
-  }, [state.sleepEntries]);
+  }, [state.sleepEntries, sleepRange]);
 
   // Expense category breakdown
   const expensePieData = useMemo(() => {
@@ -112,19 +116,19 @@ export default function DashboardTab() {
     return Object.entries(catMap).map(([name, value]) => ({ name, value }));
   }, [state.expenses, weekStart]);
 
-  // Steps data for chart (last 7 days)
+  // Steps data for chart
   const stepsChartData = useMemo(() => {
     const days = [];
-    for (let i = 6; i >= 0; i--) {
+    for (let i = stepsRange - 1; i >= 0; i--) {
       const d = format(subDays(new Date(), i), 'yyyy-MM-dd');
       const dayActivities = state.activities.filter(a => a.date === d);
       days.push({
-        day: format(subDays(new Date(), i), 'EEE'),
+        day: format(subDays(new Date(), i), 'd MMM'),
         steps: dayActivities.reduce((s, a) => s + a.steps, 0),
       });
     }
     return days;
-  }, [state.activities]);
+  }, [state.activities, stepsRange]);
 
   const PIE_COLORS = ['#6366f1', '#ef4444', '#f59e0b', '#10b981', '#8b5cf6', '#ec4899', '#06b6d4', '#64748b'];
 
@@ -274,48 +278,66 @@ export default function DashboardTab() {
 
       {/* Sleep Chart */}
       <div className="card p-4 mb-4">
-        <h3 className="font-semibold mb-3 flex items-center gap-2" style={{ color: 'var(--color-text)' }}>
-          <Moon className="w-4 h-4 text-purple-500" /> Sleep (Last 7 Days)
-        </h3>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="font-semibold flex items-center gap-2" style={{ color: 'var(--color-text)' }}>
+            <Moon className="w-4 h-4 text-purple-500" /> Sleep
+            {stats.sleepToday > 0 && <span className="text-sm font-normal text-purple-500">{stats.sleepToday}h today</span>}
+          </h3>
+          <div className="flex gap-1">
+            {[7, 15, 30].map(d => (
+              <button key={d} className="text-xs px-2 py-1 rounded-lg" onClick={() => setSleepRange(d)}
+                style={{ background: sleepRange === d ? 'var(--color-primary)' : 'var(--color-surface-alt)', color: sleepRange === d ? 'white' : 'var(--color-text-tertiary)' }}>
+                {d}d
+              </button>
+            ))}
+          </div>
+        </div>
         {sleepChartData.some(d => d.hours > 0) ? (
-          <ResponsiveContainer width="100%" height={160}>
-            <AreaChart data={sleepChartData}>
-              <defs>
-                <linearGradient id="sleepGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.3} />
-                  <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <XAxis dataKey="day" tick={{ fill: '#94a3b8', fontSize: 12 }} axisLine={false} tickLine={false} />
+          <ResponsiveContainer width="100%" height={170}>
+            <BarChart data={sleepChartData} barSize={sleepRange > 15 ? 8 : 16}>
+              <XAxis dataKey="day" tick={{ fill: 'var(--color-text-tertiary)', fontSize: 10 }} axisLine={false} tickLine={false} interval={sleepRange > 15 ? 2 : 0} />
               <YAxis hide domain={[0, 12]} />
-              <Tooltip contentStyle={{ borderRadius: 12, border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} />
-              <Area type="monotone" dataKey="hours" stroke="#8b5cf6" fill="url(#sleepGrad)" strokeWidth={2} />
-            </AreaChart>
+              <Tooltip contentStyle={{ borderRadius: 12, border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.15)', background: 'var(--color-surface)', color: 'var(--color-text)' }}
+                formatter={(value: any) => [`${value}h`, 'Sleep']} labelStyle={{ color: 'var(--color-text)', fontWeight: 600 }} />
+              <Bar dataKey="hours" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
+            </BarChart>
           </ResponsiveContainer>
         ) : (
           <div className="h-40 flex items-center justify-center">
-            <p className="text-sm" style={{ color: 'var(--color-text-tertiary)' }}>No sleep data yet. Log your sleep to see trends!</p>
+            <p className="text-sm" style={{ color: 'var(--color-text-tertiary)' }}>No sleep data yet</p>
           </div>
         )}
       </div>
 
       {/* Steps Chart */}
       <div className="card p-4 mb-4">
-        <h3 className="font-semibold mb-3 flex items-center gap-2" style={{ color: 'var(--color-text)' }}>
-          <Footprints className="w-4 h-4 text-emerald-500" /> Steps (Last 7 Days)
-        </h3>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="font-semibold flex items-center gap-2" style={{ color: 'var(--color-text)' }}>
+            <Footprints className="w-4 h-4 text-emerald-500" /> Steps
+            {stats.stepsToday > 0 && <span className="text-sm font-normal text-emerald-500">{stats.stepsToday.toLocaleString()} today</span>}
+          </h3>
+          <div className="flex gap-1">
+            {[7, 15, 30].map(d => (
+              <button key={d} className="text-xs px-2 py-1 rounded-lg" onClick={() => setStepsRange(d)}
+                style={{ background: stepsRange === d ? '#10b981' : 'var(--color-surface-alt)', color: stepsRange === d ? 'white' : 'var(--color-text-tertiary)' }}>
+                {d}d
+              </button>
+            ))}
+          </div>
+        </div>
         {stepsChartData.some(d => d.steps > 0) ? (
-          <ResponsiveContainer width="100%" height={160}>
-            <BarChart data={stepsChartData}>
-              <XAxis dataKey="day" tick={{ fill: '#94a3b8', fontSize: 12 }} axisLine={false} tickLine={false} />
+          <ResponsiveContainer width="100%" height={170}>
+            <BarChart data={stepsChartData} barSize={stepsRange > 15 ? 8 : 16}>
+              <XAxis dataKey="day" tick={{ fill: 'var(--color-text-tertiary)', fontSize: 10 }} axisLine={false} tickLine={false} interval={stepsRange > 15 ? 2 : 0} />
               <YAxis hide />
-              <Tooltip contentStyle={{ borderRadius: 12, border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} />
-              <Bar dataKey="steps" fill="#10b981" radius={[6, 6, 0, 0]} />
+              <Tooltip contentStyle={{ borderRadius: 12, border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.15)', background: 'var(--color-surface)', color: 'var(--color-text)' }}
+                formatter={(value: any) => [`${Number(value).toLocaleString()} steps`, 'Steps']} labelStyle={{ color: 'var(--color-text)', fontWeight: 600 }} />
+              <Bar dataKey="steps" fill="#10b981" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         ) : (
           <div className="h-40 flex items-center justify-center">
-            <p className="text-sm" style={{ color: 'var(--color-text-tertiary)' }}>No activity data yet. Log your steps!</p>
+            <p className="text-sm" style={{ color: 'var(--color-text-tertiary)' }}>No steps data yet</p>
           </div>
         )}
       </div>

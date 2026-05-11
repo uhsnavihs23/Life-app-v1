@@ -102,8 +102,29 @@ CREATE TABLE IF NOT EXISTS health_metrics (
   mood TEXT,
   energy_level INTEGER,
   stress_level INTEGER,
+  symptoms TEXT,
   notes TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Health profiles (persistent user body data)
+CREATE TABLE IF NOT EXISTS health_profiles (
+  user_id UUID REFERENCES auth.users PRIMARY KEY,
+  height_cm DECIMAL,
+  weight_kg DECIMAL,
+  age INTEGER,
+  gender TEXT,
+  activity_level TEXT,
+  medical_conditions TEXT,
+  allergies TEXT,
+  diet_preference TEXT,
+  fitness_goal TEXT,
+  daily_calorie_target INTEGER,
+  daily_protein_target INTEGER,
+  daily_steps_target INTEGER,
+  daily_water_target INTEGER,
+  daily_sleep_target DECIMAL,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 -- Activity timeline (logs EVERYTHING)
@@ -141,6 +162,7 @@ ALTER TABLE activities ENABLE ROW LEVEL SECURITY;
 ALTER TABLE list_items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE health_metrics ENABLE ROW LEVEL SECURITY;
 ALTER TABLE activity_timeline ENABLE ROW LEVEL SECURITY;
+ALTER TABLE health_profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE reminders ENABLE ROW LEVEL SECURITY;
 
 -- ============ POLICIES ============
@@ -224,6 +246,16 @@ CREATE POLICY "Users can insert own timeline" ON activity_timeline
 CREATE POLICY "Users can update own timeline" ON activity_timeline 
   FOR UPDATE USING (auth.uid() = user_id);
 CREATE POLICY "Users can delete own timeline" ON activity_timeline 
+  FOR DELETE USING (auth.uid() = user_id);
+
+-- Health Profiles
+CREATE POLICY "Users can view own health profile" ON health_profiles 
+  FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Users can insert own health profile" ON health_profiles 
+  FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Users can update own health profile" ON health_profiles 
+  FOR UPDATE USING (auth.uid() = user_id);
+CREATE POLICY "Users can delete own health profile" ON health_profiles 
   FOR DELETE USING (auth.uid() = user_id);
 
 -- Reminders

@@ -127,7 +127,7 @@ export interface ListItem {
   createdAt: string;
 }
 
-/** Health metrics for deep insights */
+/** Health metrics - daily check-in */
 export interface HealthMetrics {
   id: string;
   userId: string;
@@ -137,8 +137,29 @@ export interface HealthMetrics {
   mood?: 'great' | 'good' | 'okay' | 'low' | 'bad';
   energyLevel?: number; // 1-10
   stressLevel?: number; // 1-10
+  symptoms?: string; // e.g. "headache, bloating"
   notes?: string;
   createdAt: string;
+}
+
+/** Health profile - persistent body data (editable, saved once) */
+export interface HealthProfile {
+  userId: string;
+  heightCm: number;
+  weightKg: number;
+  age: number;
+  gender: 'male' | 'female' | 'other';
+  activityLevel: 'sedentary' | 'light' | 'moderate' | 'active' | 'very_active';
+  medicalConditions: string; // comma-separated
+  allergies: string;
+  dietPreference: 'veg' | 'non-veg' | 'vegan' | 'eggetarian';
+  fitnessGoal: 'lose_weight' | 'maintain' | 'gain_muscle' | 'general_fitness';
+  dailyCalorieTarget?: number;
+  dailyProteinTarget?: number;
+  dailyStepsTarget?: number;
+  dailyWaterTarget?: number; // glasses
+  dailySleepTarget?: number; // hours
+  updatedAt: string;
 }
 
 /** Activity timeline - tracks EVERYTHING */
