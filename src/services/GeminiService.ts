@@ -195,6 +195,7 @@ Use standard Indian food nutrition data. Be specific about what to eat next.`;
     try {
       const prompt = `You are LifeLog AI — a personal health, fitness, and life tracking assistant.
 Answer based on the user's actual data. Be specific, actionable, encouraging.
+IMPORTANT: Do NOT use markdown formatting. No ** for bold, no # headers, no * for bullets. Use plain text with emoji and line breaks. Use "•" for bullet points.
 ${context ? `\nUser's data:\n${context}\n` : ''}
 Question: ${query}`;
       return await callGemini(prompt);

@@ -602,6 +602,7 @@ export const SupabaseDB = {
       listItems,
       healthMetrics,
       activityTimeline,
+      healthProfile,
     ] = await Promise.all([
       this.getDailyLogs(userId),
       this.getExpenses(userId),
@@ -612,6 +613,7 @@ export const SupabaseDB = {
       this.getListItems(userId),
       this.getHealthMetrics(userId),
       this.getTimeline(userId),
+      this.getHealthProfile(userId),
     ]);
 
     return {
@@ -624,6 +626,7 @@ export const SupabaseDB = {
       listItems,
       healthMetrics,
       activityTimeline,
+      healthProfile,
     };
   },
 };

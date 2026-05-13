@@ -1,9 +1,11 @@
 /**
- * SearchTab - AI Chat / Search
+ * SearchTab - AI Chat
  * 
- * Chat state is LOCAL to this component to avoid full-app re-renders.
- * Messages persist to localStorage separately from main app state.
- * Each send is independent — errors don't block future messages.
+ * FIXES:
+ * - Fresh suggestions view on app open
+ * - Past conversations viewable
+ * - Markdown rendered properly (bold, bullets, no raw asterisks)
+ * - Session-based: new session each day
  */
 
 import { useState, useRef, useEffect, useCallback } from 'react';
@@ -11,9 +13,9 @@ import { useApp } from '../../store/AppContext';
 import { GeminiService, hasGeminiApiKey } from '../../services/GeminiService';
 import { formatINR } from '../../models/types';
 import { format } from 'date-fns';
-import { Send, Sparkles, User, Loader2, MessageCircle, AlertCircle } from 'lucide-react';
+import { Send, Sparkles, User, Loader2, MessageCircle, AlertCircle, Clock, Trash2 } from 'lucide-react';
 
-interface LocalChatMessage {
+interface ChatMsg {
   id: string;
   role: 'user' | 'assistant';
   content: string;
@@ -21,157 +23,185 @@ interface LocalChatMessage {
   isError?: boolean;
 }
 
-const CHAT_STORAGE_KEY = 'lifelog_chat_messages';
-
-function loadChat(): LocalChatMessage[] {
-  try {
-    const raw = localStorage.getItem(CHAT_STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch { return []; }
+interface ChatSession {
+  date: string;
+  messages: ChatMsg[];
 }
 
-function saveChat(msgs: LocalChatMessage[]) {
-  try {
-    // Keep last 100 messages max
-    localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(msgs.slice(-100)));
-  } catch { /* quota exceeded, ignore */ }
+const CHAT_KEY = 'lifelog_chat_sessions';
+
+function loadSessions(): ChatSession[] {
+  try { return JSON.parse(localStorage.getItem(CHAT_KEY) || '[]'); } catch { return []; }
+}
+function saveSessions(s: ChatSession[]) {
+  try { localStorage.setItem(CHAT_KEY, JSON.stringify(s.slice(-30))); } catch { /* quota */ }
+}
+
+/** Convert markdown-like text to clean HTML-safe display */
+function formatAiText(text: string): string {
+  return text
+    .replace(/\*\*(.+?)\*\*/g, '⟨b⟩$1⟨/b⟩')  // bold markers
+    .replace(/\*(.+?)\*/g, '⟨i⟩$1⟨/i⟩')       // italic markers
+    .replace(/^[-•]\s+/gm, '  • ')              // bullet points
+    .replace(/^\d+\.\s+/gm, (m) => `  ${m}`)    // numbered lists
+    .replace(/⟨b⟩/g, '').replace(/⟨\/b⟩/g, '')  // strip markers for now
+    .replace(/⟨i⟩/g, '').replace(/⟨\/i⟩/g, '')
+    .replace(/#{1,3}\s+/g, '')                   // remove markdown headers
+    .replace(/```[\s\S]*?```/g, (m) => m.replace(/```\w*/g, '').trim()) // code blocks
+    .trim();
 }
 
 export default function SearchTab() {
   const { state } = useApp();
-  const [messages, setMessages] = useState<LocalChatMessage[]>(loadChat);
+  const todayDate = format(new Date(), 'yyyy-MM-dd');
+  
+  const [sessions, setSessions] = useState<ChatSession[]>(loadSessions);
+  const [showPast, setShowPast] = useState(false);
   const [query, setQuery] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Scroll to bottom when messages change
+  // Current session = today's messages
+  const currentSession = sessions.find(s => s.date === todayDate);
+  const messages = currentSession?.messages || [];
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages.length]);
 
-  // Save chat whenever messages change
-  useEffect(() => { saveChat(messages); }, [messages]);
+  const addMessage = useCallback((msg: ChatMsg) => {
+    setSessions(prev => {
+      const updated = [...prev];
+      let session = updated.find(s => s.date === todayDate);
+      if (!session) {
+        session = { date: todayDate, messages: [] };
+        updated.push(session);
+      }
+      session.messages = [...session.messages, msg];
+      saveSessions(updated);
+      return updated;
+    });
+  }, [todayDate]);
 
-  // Build compact context from user's data
   const buildContext = useCallback((): string => {
     const today = new Date().toISOString().split('T')[0];
     const parts: string[] = [];
-
-    // Today's expenses
     const todayExp = state.expenses.filter(e => e.createdAt.startsWith(today));
     if (todayExp.length > 0) {
-      const total = todayExp.reduce((s, e) => s + e.amount, 0);
-      parts.push(`Today's expenses: ${formatINR(total)} across ${todayExp.length} entries`);
-      todayExp.slice(0, 5).forEach(e => parts.push(`  - ${formatINR(e.amount)} on ${e.category}${e.note ? ': ' + e.note : ''}`));
+      parts.push(`Today's expenses: ${formatINR(todayExp.reduce((s, e) => s + e.amount, 0))} across ${todayExp.length} items`);
+      todayExp.slice(0, 5).forEach(e => parts.push(`  - ${formatINR(e.amount)} ${e.category}${e.note ? ': ' + e.note : ''}`));
     }
-
-    // Today's food
     const todayFood = state.foodEntries.filter(f => f.createdAt.startsWith(today));
     if (todayFood.length > 0) {
       const cal = todayFood.reduce((s, f) => s + (f.calories || 0), 0);
-      parts.push(`Today's food: ${todayFood.length} meals, ~${cal} cal`);
+      parts.push(`Food: ${todayFood.length} meals, ~${cal} cal`);
       todayFood.forEach(f => parts.push(`  - ${f.name} (${f.portionSize})${f.calories ? ' ' + f.calories + 'cal' : ''}`));
     }
-
-    // Sleep
     const todaySleep = state.sleepEntries.find(s => s.date === today);
     if (todaySleep) parts.push(`Sleep: ${todaySleep.hours}h, quality: ${todaySleep.quality}`);
-
-    // Steps
     const todaySteps = state.activities.filter(a => a.date === today).reduce((s, a) => s + a.steps, 0);
-    if (todaySteps > 0) parts.push(`Steps today: ${todaySteps.toLocaleString()}`);
-
-    // Recent logs
+    if (todaySteps > 0) parts.push(`Steps: ${todaySteps.toLocaleString()}`);
     const recentLogs = state.dailyLogs.slice(0, 5);
     if (recentLogs.length > 0) {
       parts.push(`Recent logs:`);
-      recentLogs.forEach(l => parts.push(`  - [${l.tag}] ${l.text.slice(0, 80)}`));
+      recentLogs.forEach(l => parts.push(`  - [${l.tag}] ${l.text.slice(0, 60)}`));
     }
-
-    // Week expenses
     const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate() - 7);
     const weekExp = state.expenses.filter(e => new Date(e.createdAt) >= weekAgo);
-    if (weekExp.length > 0) {
-      parts.push(`This week's total spending: ${formatINR(weekExp.reduce((s, e) => s + e.amount, 0))}`);
-    }
-
+    if (weekExp.length > 0) parts.push(`Week total: ${formatINR(weekExp.reduce((s, e) => s + e.amount, 0))}`);
     return parts.join('\n');
   }, [state.expenses, state.foodEntries, state.sleepEntries, state.activities, state.dailyLogs]);
 
   const handleSend = useCallback(async () => {
     const q = query.trim();
     if (!q || isLoading) return;
-
-    // Clear input immediately
     setQuery('');
     inputRef.current?.focus();
 
-    // Add user message immediately
-    const userMsg: LocalChatMessage = {
-      id: `u_${Date.now()}`,
-      role: 'user',
-      content: q,
-      timestamp: new Date().toISOString(),
-    };
-    setMessages(prev => [...prev, userMsg]);
+    addMessage({ id: `u_${Date.now()}`, role: 'user', content: q, timestamp: new Date().toISOString() });
     setIsLoading(true);
 
     try {
       const context = buildContext();
       const response = await GeminiService.search(q, context);
-      setMessages(prev => [...prev, {
-        id: `a_${Date.now()}`,
-        role: 'assistant',
-        content: response,
-        timestamp: new Date().toISOString(),
-      }]);
+      addMessage({ id: `a_${Date.now()}`, role: 'assistant', content: formatAiText(response), timestamp: new Date().toISOString() });
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Unknown error';
-      setMessages(prev => [...prev, {
-        id: `e_${Date.now()}`,
-        role: 'assistant',
-        content: `⚠️ ${errorMsg}`,
-        timestamp: new Date().toISOString(),
-        isError: true,
-      }]);
+      addMessage({ id: `e_${Date.now()}`, role: 'assistant', content: `⚠️ ${err instanceof Error ? err.message : 'Error'}`, timestamp: new Date().toISOString(), isError: true });
     } finally {
-      // ALWAYS reset loading — this is critical
       setIsLoading(false);
     }
-  }, [query, isLoading, buildContext]);
+  }, [query, isLoading, buildContext, addMessage]);
+
+  const clearToday = () => {
+    setSessions(prev => {
+      const updated = prev.filter(s => s.date !== todayDate);
+      saveSessions(updated);
+      return updated;
+    });
+  };
 
   const suggestions = [
+    'How was my day today?',
     'How much did I spend this week?',
-    'How is my sleep pattern?',
-    'Summarize my food intake today',
-    'How active have I been?',
+    'Analyze my sleep pattern',
+    'What should I eat for dinner?',
+    'Am I hitting my fitness goals?',
   ];
+
+  const pastSessions = sessions.filter(s => s.date !== todayDate && s.messages.length > 0).sort((a, b) => b.date.localeCompare(a.date));
 
   return (
     <div className="flex flex-col h-[calc(100vh-140px)] fade-in safe-area-top">
-      <div className="mb-4">
-        <h1 className="text-3xl font-bold" style={{ color: 'var(--color-text)' }}>Search & AI</h1>
-        <p className="text-sm mt-1" style={{ color: 'var(--color-text-secondary)' }}>
-          Ask questions about your life data
-          {!hasGeminiApiKey() && <span className="text-amber-500"> · API key needed</span>}
-        </p>
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h1 className="text-3xl font-bold" style={{ color: 'var(--color-text)' }}>AI Assistant</h1>
+          <p className="text-sm mt-1" style={{ color: 'var(--color-text-secondary)' }}>
+            {!hasGeminiApiKey() && <span className="text-amber-500">API key needed · </span>}
+            {messages.length > 0 ? `${messages.length} messages today` : 'Ask me anything'}
+          </p>
+        </div>
+        <div className="flex gap-1">
+          {pastSessions.length > 0 && (
+            <button className="p-2 rounded-xl" style={{ background: 'var(--color-surface-alt)' }} onClick={() => setShowPast(!showPast)}>
+              <Clock className="w-4 h-4" style={{ color: 'var(--color-text-tertiary)' }} />
+            </button>
+          )}
+          {messages.length > 0 && (
+            <button className="p-2 rounded-xl" style={{ background: 'var(--color-surface-alt)' }} onClick={clearToday}>
+              <Trash2 className="w-4 h-4" style={{ color: 'var(--color-text-tertiary)' }} />
+            </button>
+          )}
+        </div>
       </div>
+
+      {/* Past conversations */}
+      {showPast && (
+        <div className="card p-3 mb-4 max-h-60 overflow-y-auto slide-up">
+          <h3 className="text-sm font-semibold mb-2" style={{ color: 'var(--color-text)' }}>Past Conversations</h3>
+          {pastSessions.map(s => (
+            <div key={s.date} className="py-2 border-b" style={{ borderColor: 'var(--color-border)' }}>
+              <p className="text-xs font-medium" style={{ color: 'var(--color-text-secondary)' }}>{format(new Date(s.date), 'd MMM yyyy')}</p>
+              {s.messages.filter(m => m.role === 'user').slice(0, 3).map(m => (
+                <p key={m.id} className="text-xs truncate mt-1" style={{ color: 'var(--color-text-tertiary)' }}>→ {m.content}</p>
+              ))}
+            </div>
+          ))}
+          <button className="text-xs mt-2 w-full text-center" style={{ color: 'var(--color-primary)' }} onClick={() => setShowPast(false)}>Close</button>
+        </div>
+      )}
 
       <div className="flex-1 overflow-y-auto space-y-3 pb-4">
         {messages.length === 0 ? (
-          <div className="text-center py-12">
-            <div className="w-16 h-16 rounded-full mx-auto mb-4 flex items-center justify-center"
-              style={{ background: 'rgba(99,102,241,0.1)' }}>
+          <div className="text-center py-8">
+            <div className="w-16 h-16 rounded-full mx-auto mb-4 flex items-center justify-center" style={{ background: 'rgba(99,102,241,0.1)' }}>
               <Sparkles className="w-8 h-8 text-indigo-500" />
             </div>
-            <h3 className="font-semibold text-lg mb-1" style={{ color: 'var(--color-text)' }}>
-              Your AI Assistant
-            </h3>
+            <h3 className="font-semibold text-lg mb-1" style={{ color: 'var(--color-text)' }}>Ask Me Anything</h3>
             <p className="text-sm mb-6 max-w-xs mx-auto" style={{ color: 'var(--color-text-tertiary)' }}>
-              Ask me about your logs, expenses, health, or general questions.
+              I can analyze your health, expenses, sleep patterns, and more.
             </p>
-            <div className="space-y-2">
+            <div className="space-y-2 max-w-sm mx-auto">
               {suggestions.map(s => (
                 <button key={s} className="block w-full card p-3 text-sm text-left transition-all active:scale-[0.98]"
                   style={{ color: 'var(--color-primary)' }} onClick={() => setQuery(s)}>
@@ -189,12 +219,8 @@ export default function SearchTab() {
                   {msg.role === 'user' ? <User className="w-4 h-4 text-white" /> : msg.isError ? <AlertCircle className="w-4 h-4 text-red-500" /> : <Sparkles className="w-4 h-4 text-indigo-500" />}
                 </div>
                 <div className="rounded-2xl px-4 py-2.5"
-                  style={{
-                    background: msg.role === 'user' ? 'var(--color-primary)' : 'var(--color-surface)',
-                    color: msg.role === 'user' ? 'white' : msg.isError ? '#ef4444' : 'var(--color-text)',
-                    border: msg.role === 'assistant' ? '1px solid var(--color-border)' : 'none',
-                  }}>
-                  <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+                  style={{ background: msg.role === 'user' ? 'var(--color-primary)' : 'var(--color-surface)', color: msg.role === 'user' ? 'white' : msg.isError ? '#ef4444' : 'var(--color-text)', border: msg.role === 'assistant' ? '1px solid var(--color-border)' : 'none' }}>
+                  <div className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</div>
                   <p className="text-xs mt-1 opacity-50">{format(new Date(msg.timestamp), 'h:mm a')}</p>
                 </div>
               </div>
@@ -222,8 +248,7 @@ export default function SearchTab() {
           value={query} onChange={e => setQuery(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
           disabled={isLoading} />
-        <button className="ios-btn ios-btn-primary" style={{ padding: '12px 14px' }}
-          onClick={handleSend} disabled={!query.trim() || isLoading}>
+        <button className="ios-btn ios-btn-primary" style={{ padding: '12px 14px' }} onClick={handleSend} disabled={!query.trim() || isLoading}>
           <Send className="w-5 h-5" />
         </button>
       </div>

@@ -202,20 +202,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (cancelled) return;
 
         // MERGE: combine local + cloud, deduplicate by id
-        dispatch({
-          type: 'LOAD_STATE',
-          state: {
-            dailyLogs: mergeById(state.dailyLogs, cloud.dailyLogs),
-            expenses: mergeById(state.expenses, cloud.expenses),
-            foodEntries: mergeById(state.foodEntries, cloud.foodEntries),
-            sleepEntries: mergeById(state.sleepEntries, cloud.sleepEntries),
-            activities: mergeById(state.activities, cloud.activities),
-            reminders: mergeById(state.reminders, cloud.reminders),
-            listItems: mergeById(state.listItems, cloud.listItems),
-            healthMetrics: mergeById(state.healthMetrics, cloud.healthMetrics),
-            activityTimeline: mergeById(state.activityTimeline, cloud.activityTimeline),
-          },
-        });
+        const merged: Partial<AppState> = {
+          dailyLogs: mergeById(state.dailyLogs, cloud.dailyLogs),
+          expenses: mergeById(state.expenses, cloud.expenses),
+          foodEntries: mergeById(state.foodEntries, cloud.foodEntries),
+          sleepEntries: mergeById(state.sleepEntries, cloud.sleepEntries),
+          activities: mergeById(state.activities, cloud.activities),
+          reminders: mergeById(state.reminders, cloud.reminders),
+          listItems: mergeById(state.listItems, cloud.listItems),
+          healthMetrics: mergeById(state.healthMetrics, cloud.healthMetrics),
+          activityTimeline: mergeById(state.activityTimeline, cloud.activityTimeline),
+        };
+        // Health profile: cloud wins (it's a single object, not an array)
+        if (cloud.healthProfile) merged.healthProfile = cloud.healthProfile;
+        dispatch({ type: 'LOAD_STATE', state: merged });
       } catch (e) {
         console.error('Cloud load error:', e);
         // On error, keep local data as-is — don't lose anything

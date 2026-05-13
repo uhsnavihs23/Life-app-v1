@@ -295,11 +295,11 @@ export default function DashboardTab() {
         {sleepChartData.some(d => d.hours > 0) ? (
           <ResponsiveContainer width="100%" height={170}>
             <BarChart data={sleepChartData} barSize={sleepRange > 15 ? 8 : 16}>
-              <XAxis dataKey="day" tick={{ fill: 'var(--color-text-tertiary)', fontSize: 10 }} axisLine={false} tickLine={false} interval={sleepRange > 15 ? 2 : 0} />
+              <XAxis dataKey="day" tick={{ fill: 'var(--color-text-tertiary)', fontSize: 9 }} axisLine={false} tickLine={false} interval={sleepRange <= 7 ? 0 : sleepRange <= 15 ? 1 : 3} angle={sleepRange > 7 ? -35 : 0} textAnchor={sleepRange > 7 ? 'end' : 'middle'} height={sleepRange > 7 ? 40 : 25} />
               <YAxis hide domain={[0, 12]} />
               <Tooltip contentStyle={{ borderRadius: 12, border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.15)', background: 'var(--color-surface)', color: 'var(--color-text)' }}
                 formatter={(value: any) => [`${value}h`, 'Sleep']} labelStyle={{ color: 'var(--color-text)', fontWeight: 600 }} />
-              <Bar dataKey="hours" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="hours" fill="#8b5cf6" radius={[3, 3, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         ) : (
@@ -328,11 +328,11 @@ export default function DashboardTab() {
         {stepsChartData.some(d => d.steps > 0) ? (
           <ResponsiveContainer width="100%" height={170}>
             <BarChart data={stepsChartData} barSize={stepsRange > 15 ? 8 : 16}>
-              <XAxis dataKey="day" tick={{ fill: 'var(--color-text-tertiary)', fontSize: 10 }} axisLine={false} tickLine={false} interval={stepsRange > 15 ? 2 : 0} />
+              <XAxis dataKey="day" tick={{ fill: 'var(--color-text-tertiary)', fontSize: 9 }} axisLine={false} tickLine={false} interval={stepsRange <= 7 ? 0 : stepsRange <= 15 ? 1 : 3} angle={stepsRange > 7 ? -35 : 0} textAnchor={stepsRange > 7 ? 'end' : 'middle'} height={stepsRange > 7 ? 40 : 25} />
               <YAxis hide />
               <Tooltip contentStyle={{ borderRadius: 12, border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.15)', background: 'var(--color-surface)', color: 'var(--color-text)' }}
                 formatter={(value: any) => [`${Number(value).toLocaleString()} steps`, 'Steps']} labelStyle={{ color: 'var(--color-text)', fontWeight: 600 }} />
-              <Bar dataKey="steps" fill="#10b981" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="steps" fill="#10b981" radius={[3, 3, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         ) : (
