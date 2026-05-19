@@ -27,7 +27,7 @@ export default function DashboardTab() {
   const [aiInsights, setAiInsights] = useState<string[]>([]);
   const [loadingInsights, setLoadingInsights] = useState(false);
 
-  // Calculate stats — depend on SPECIFIC arrays, not entire state
+  // Calculate stats — SUM all entries per day, never just take first
   const stats = useMemo(() => {
     const expToday = state.expenses.filter(e => e.createdAt.startsWith(today));
     const expWeek = state.expenses.filter(e => isAfter(new Date(e.createdAt), weekStart));
@@ -35,6 +35,16 @@ export default function DashboardTab() {
     const sleepToday = state.sleepEntries.filter(s => s.date === today);
     const actToday = state.activities.filter(a => a.date === today);
     const healthToday = state.healthMetrics.filter(h => h.date === today);
+
+    // SUM all sleep entries for today (night sleep + naps)
+    const totalSleepToday = sleepToday.reduce((s, e) => s + e.hours, 0);
+    // Best quality from today's entries
+    const qualityOrder = ['excellent', 'good', 'fair', 'poor'];
+    const bestQuality = sleepToday.length > 0
+      ? sleepToday.reduce((best, e) => qualityOrder.indexOf(e.quality) < qualityOrder.indexOf(best) ? e.quality : best, sleepToday[0].quality)
+      : null;
+    // SUM all water intake from health metrics today
+    const totalWater = healthToday.reduce((s, h) => s + (h.waterIntake || 0), 0);
 
     return {
       expensesToday: expToday.reduce((s, e) => s + e.amount, 0),
@@ -44,13 +54,13 @@ export default function DashboardTab() {
       proteinToday: foodToday.reduce((s, f) => s + (f.protein || 0), 0),
       carbsToday: foodToday.reduce((s, f) => s + (f.carbs || 0), 0),
       fatToday: foodToday.reduce((s, f) => s + (f.fat || 0), 0),
-      sleepToday: sleepToday.length > 0 ? sleepToday[0].hours : 0,
-      sleepQuality: sleepToday.length > 0 ? sleepToday[0].quality : null,
+      sleepToday: Math.round(totalSleepToday * 10) / 10,
+      sleepQuality: bestQuality,
       stepsToday: actToday.reduce((s, a) => s + a.steps, 0),
       entriesTotal: state.dailyLogs.length,
-      mood: healthToday.length > 0 ? healthToday[0].mood : null,
-      energy: healthToday.length > 0 ? healthToday[0].energyLevel : null,
-      water: healthToday.length > 0 ? healthToday[0].waterIntake : 0,
+      mood: healthToday.length > 0 ? healthToday[healthToday.length - 1].mood : null,
+      energy: healthToday.length > 0 ? healthToday[healthToday.length - 1].energyLevel : null,
+      water: totalWater,
     };
   }, [state.expenses, state.foodEntries, state.sleepEntries, state.activities, state.healthMetrics, state.dailyLogs, today, weekStart]);
 
@@ -91,15 +101,16 @@ export default function DashboardTab() {
   const [sleepRange, setSleepRange] = useState(7);
   const [stepsRange, setStepsRange] = useState(7);
 
-  // Sleep data for chart
+  // Sleep data for chart — SUM all entries per day
   const sleepChartData = useMemo(() => {
     const days = [];
     for (let i = sleepRange - 1; i >= 0; i--) {
       const d = format(subDays(new Date(), i), 'yyyy-MM-dd');
-      const entry = state.sleepEntries.find(s => s.date === d);
+      const dayEntries = state.sleepEntries.filter(s => s.date === d);
+      const totalHours = dayEntries.reduce((s, e) => s + e.hours, 0);
       days.push({
         day: format(subDays(new Date(), i), 'd MMM'),
-        hours: entry ? Math.round(entry.hours * 10) / 10 : 0,
+        hours: Math.round(totalHours * 10) / 10,
       });
     }
     return days;

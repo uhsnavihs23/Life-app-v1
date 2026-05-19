@@ -10,7 +10,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useApp } from '../../store/AppContext';
 import { setGeminiApiKey, hasGeminiApiKey, isApiKeyFromEnv } from '../../services/GeminiService';
-import { isSupabaseConfigured, getSupabaseClient } from '../../services/SupabaseService';
+import { isSupabaseConfigured, getSupabaseClient, SupabaseDB } from '../../services/SupabaseService';
 import {
   Moon, Sun, Bell, Key, LogOut,
   ChevronRight, Shield, Info, Trash2, Check, ExternalLink, Sparkles, Database, Camera, Download
@@ -39,14 +39,23 @@ export default function ProfileTab() {
     setApiKeyFromEnv(isApiKeyFromEnv());
     setSupabaseConfigured(isSupabaseConfigured());
     
-    // Load saved profile image
-    const savedImage = localStorage.getItem('lifelog_profile_image');
-    if (savedImage) setProfileImage(savedImage);
+    // Load saved profile image — check cloud first via user avatarUrl, then localStorage
+    if (user?.avatarUrl) {
+      setProfileImage(user.avatarUrl);
+      localStorage.setItem('lifelog_profile_image', user.avatarUrl);
+    } else {
+      const savedImage = localStorage.getItem('lifelog_profile_image');
+      if (savedImage) setProfileImage(savedImage);
+    }
   }, []);
 
   const handleSaveProfile = () => {
     dispatch({ type: 'UPDATE_PROFILE', displayName: editName, email: editEmail });
     setEditMode(false);
+    // Sync to Supabase
+    if (isSupabaseConfigured() && user?.id) {
+      SupabaseDB.saveUserProfile(user.id, editName, editEmail);
+    }
   };
 
   const handleSaveApiKey = () => {
@@ -68,6 +77,12 @@ export default function ProfileTab() {
         const imageData = event.target?.result as string;
         setProfileImage(imageData);
         localStorage.setItem('lifelog_profile_image', imageData);
+        // Sync small version to Supabase (just the URL/data, profiles table has avatar_url)
+        if (isSupabaseConfigured() && user?.id) {
+          // Save a truncated version for cross-device avatar (first 50KB)
+          const smallAvatar = imageData.length > 50000 ? imageData.substring(0, 50000) : imageData;
+          SupabaseDB.saveUserProfile(user.id, user.displayName, user.email, smallAvatar);
+        }
       };
       reader.readAsDataURL(file);
     }

@@ -11,6 +11,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useApp } from '../../store/AppContext';
 import { GeminiService, hasGeminiApiKey } from '../../services/GeminiService';
+import { SupabaseDB, isSupabaseConfigured } from '../../services/SupabaseService';
 import { formatINR } from '../../models/types';
 import { format } from 'date-fns';
 import { Send, Sparkles, User, Loader2, MessageCircle, AlertCircle, Clock, Trash2 } from 'lucide-react';
@@ -33,8 +34,13 @@ const CHAT_KEY = 'lifelog_chat_sessions';
 function loadSessions(): ChatSession[] {
   try { return JSON.parse(localStorage.getItem(CHAT_KEY) || '[]'); } catch { return []; }
 }
-function saveSessions(s: ChatSession[]) {
-  try { localStorage.setItem(CHAT_KEY, JSON.stringify(s.slice(-30))); } catch { /* quota */ }
+function saveSessions(s: ChatSession[], userId?: string) {
+  const trimmed = s.slice(-30);
+  try { localStorage.setItem(CHAT_KEY, JSON.stringify(trimmed)); } catch { /* quota */ }
+  // Sync to Supabase
+  if (userId && isSupabaseConfigured()) {
+    SupabaseDB.saveChatSessions(userId, trimmed).catch(() => {});
+  }
 }
 
 /** Convert markdown-like text to clean HTML-safe display */
@@ -70,6 +76,7 @@ export default function SearchTab() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages.length]);
 
+  const userIdForChat = state.user?.id;
   const addMessage = useCallback((msg: ChatMsg) => {
     setSessions(prev => {
       const updated = [...prev];
@@ -79,10 +86,10 @@ export default function SearchTab() {
         updated.push(session);
       }
       session.messages = [...session.messages, msg];
-      saveSessions(updated);
+      saveSessions(updated, userIdForChat);
       return updated;
     });
-  }, [todayDate]);
+  }, [todayDate, userIdForChat]);
 
   const buildContext = useCallback((): string => {
     const today = new Date().toISOString().split('T')[0];
@@ -136,7 +143,7 @@ export default function SearchTab() {
   const clearToday = () => {
     setSessions(prev => {
       const updated = prev.filter(s => s.date !== todayDate);
-      saveSessions(updated);
+      saveSessions(updated, userIdForChat);
       return updated;
     });
   };

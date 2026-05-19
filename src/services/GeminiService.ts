@@ -135,22 +135,52 @@ Return ONLY valid JSON (no markdown, no backticks):
 }
 
 CRITICAL RULES:
-1. DATE: If user mentions ANY specific date like "10th May 2026", "on 8th May", "yesterday", set "date" field as "YYYY-MM-DD". This is CRITICAL — expenses/activities on past dates must have the correct date. If no date mentioned, omit the date field.
-   Examples: "10th May 2026: 139₹ jio recharge" → date: "2026-05-10". "yesterday walked 3km" → calculate yesterday's date.
-2. FOOD NUTRITION: You MUST estimate accurate calories, protein, carbs, fat for EVERY food item using standard Indian nutrition databases. Examples:
-   - Kala chana (black chickpeas): 1 bowl ≈ 350 cal, 20g protein, 45g carbs, 6g fat
-   - Halwa (suji): 1 serving ≈ 300 cal, 4g protein, 40g carbs, 15g fat  
-   - Amul protein shake 200ml: ≈ 140 cal, 20g protein, 15g carbs, 2g fat
-   - Roti: 1 piece ≈ 120 cal, 3g protein, 20g carbs, 3g fat
-   Be ACCURATE. Don't underestimate. If "20g protein shake 200ml" is mentioned, that means 20g protein content.
-3. FOOD: Provide nutritionSummary analyzing the MEAL as a whole (e.g. "High protein breakfast at ~790 cal. Good protein-to-carb ratio. Consider adding a fruit for vitamins.")
-4. FOOD: Set mealType correctly based on context: breakfast/lunch/dinner/snack.
-5. EXERCISE: Estimate calories burned accurately. 10 pushups burns ~3-5 cal. 3 sets of 10 pushups ≈ 15 cal. 15 crunches × 3 sets ≈ 20 cal. Be realistic, not inflated.
-6. WALKING/STEPS: Use type "activity" with steps and distanceKm. ALWAYS estimate steps from distance: 1 km ≈ 1300 steps. "walked 0.5 km" → steps: 650, distanceKm: 0.5. NEVER return steps: 0 if distance is given.
-7. GYM EXERCISE: Use type "exercise" with exercises array containing name, sets, reps.
-8. SLEEP: Calculate hours precisely. "4:30 AM to 11 AM" = 6.5 hours. "11 PM to 7 AM" = 8 hours.
-9. MULTI-TYPE: One log can contain multiple types. "ate then walked" → food + activity. Parse ALL.
-10. EXPENSE: Extract amount in INR. "₹300 cab" → amount: 300, expenseCategory: "Transportation".`;
+
+DATE HANDLING:
+- If user mentions ANY date like "10th May 2026", "on 8th May", "yesterday", "day before yesterday", set "date" as "YYYY-MM-DD".
+- "yesterday" = calculate yesterday from today (${todayStr}).
+- "day before yesterday" = today minus 2 days.
+- If NO date mentioned, OMIT the date field (defaults to today).
+- Examples: "139₹ jio recharge on 10th May 2026" → date: "2026-05-10"
+
+SLEEP RULES:
+- Calculate hours PRECISELY from times. "2 AM to 10 AM" = 8h. "3:50 PM to 5 PM" = 1.17h. "11 PM to 7 AM" = 8h.
+- EVERY sleep entry is ADDITIVE. The app sums all sleep entries per day. So "slept 2 AM to 10 AM" = 8h entry, and later "nap 3:50 PM to 5 PM" = 1.17h entry. Total becomes 9.17h.
+- NEVER try to "replace" a previous sleep entry. Just create a new one — the app adds them.
+- Always include bedTime and wakeTime strings for display.
+- Set sleepQuality: if hours >= 7 → "good", if >= 8.5 → "excellent", if < 5 → "poor", else "fair".
+
+FOOD RULES:
+- ALWAYS estimate calories, protein, carbs, fat, sugar, fiber for every item.
+- Use accurate Indian food nutrition data.
+- Each new food entry is ADDITIVE — the app sums calories/protein/etc across all meals.
+- Set mealType from context: morning → breakfast, afternoon → lunch, evening → dinner, else → snack.
+- nutritionSummary should compare against daily targets if known (e.g. "You've consumed 60% of daily protein target").
+
+EXPENSE RULES:
+- Each expense is ADDITIVE — the app sums all expenses per day.
+- Extract amount in INR. "₹300 cab" → amount: 300.
+- Guess category: food/cab/auto/uber → "Transportation", swiggy/zomato → "Food & Dining", jio/airtel/recharge → "Recharge", amazon/flipkart → "Shopping", electricity/gas/water → "Bills & Utilities".
+
+ACTIVITY/STEPS RULES:
+- Each entry is ADDITIVE — the app sums steps per day.
+- "walked 0.5 km till 11 AM" = 650 steps, 0.5 km. Later "walked 1 km in evening" = 1300 steps, 1 km. App shows total 1950 steps.
+- ALWAYS estimate steps from km: 1 km ≈ 1300 steps. NEVER return steps: 0 if distance given.
+- If user says "total 5000 steps today" with no previous entry, just create one entry with 5000.
+
+EXERCISE RULES:
+- Each exercise entry is ADDITIVE.
+- Include exercises array with name, sets, reps.
+- Estimate calories burned: pushups 3x10 ≈ 15 cal, crunches 3x15 ≈ 20 cal, squats 3x15 ≈ 30 cal, running 30 min ≈ 300 cal, yoga 30 min ≈ 120 cal.
+- Walking/running with distance → use "activity" type. Gym/bodyweight → use "exercise" type.
+
+MULTI-ENTRY RULE:
+- A single log can produce MULTIPLE entries. "ate biryani, walked 2 km, spent ₹350" → food + activity + expense.
+- Parse ALL activities from the text. Do not ignore any.
+
+GENERAL FALLBACK:
+- If text doesn't match any category clearly, return type "general" with entries: [{"type":"general"}]
+- NEVER return an empty entries array.`;
 
       const response = await callGemini(prompt);
       const match = response.match(/\{[\s\S]*\}/);
@@ -251,11 +281,33 @@ Return ONLY a JSON array of strings.`;
 function mockClassify(text: string): ClassifyResult {
   const l = text.toLowerCase();
   const entries: ClassifiedEntry[] = [];
-  if (/slept|sleep|bed|woke|nap/.test(l)) entries.push({ type: 'sleep' });
-  if (/spent|paid|₹|rs\s?\d|bought|cost|\d+\s*rupee/.test(l)) entries.push({ type: 'expense' });
-  if (/ate|food|meal|breakfast|lunch|dinner|snack|drank|coffee|tea|chana|rice|roti/.test(l)) entries.push({ type: 'food' });
-  if (/walk|run|jog|km|steps/.test(l)) entries.push({ type: 'activity' });
-  if (/exercise|pushup|crunch|yoga|workout|situp|plank|squat|gym|sets|reps/.test(l)) entries.push({ type: 'exercise' });
+
+  // Sleep: try to extract hours from "X hours" or "slept for Xh"
+  if (/slept|sleep|bed|woke|nap/.test(l)) {
+    const hoursMatch = l.match(/(\d+\.?\d*)\s*(?:hours?|hrs?|h\b)/);
+    entries.push({ type: 'sleep', sleepHours: hoursMatch ? parseFloat(hoursMatch[1]) : undefined });
+  }
+  // Expense: extract amount
+  if (/spent|paid|₹|rs\s?\d|bought|cost|\d+\s*rupee/.test(l)) {
+    const amtMatch = l.match(/(?:₹|rs\.?\s*)(\d+)/);
+    entries.push({ type: 'expense', amount: amtMatch ? parseInt(amtMatch[1]) : undefined });
+  }
+  // Food
+  if (/ate|food|meal|breakfast|lunch|dinner|snack|drank|coffee|tea|chana|rice|roti/.test(l)) {
+    entries.push({ type: 'food' });
+  }
+  // Activity: extract km or steps
+  if (/walk|run|jog|km|steps/.test(l)) {
+    const kmMatch = l.match(/(\d+\.?\d*)\s*km/);
+    const stepsMatch = l.match(/(\d+)\s*steps/);
+    const km = kmMatch ? parseFloat(kmMatch[1]) : undefined;
+    const steps = stepsMatch ? parseInt(stepsMatch[1]) : (km ? Math.round(km * 1300) : undefined);
+    entries.push({ type: 'activity', steps, distanceKm: km });
+  }
+  // Exercise
+  if (/exercise|pushup|crunch|yoga|workout|situp|plank|squat|gym|sets|reps/.test(l)) {
+    entries.push({ type: 'exercise' });
+  }
   if (entries.length === 0) entries.push({ type: 'general' });
   return { entries, summary: text.slice(0, 80) };
 }

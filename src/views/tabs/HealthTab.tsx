@@ -43,9 +43,10 @@ export default function HealthTab() {
   const [loadingAi, setLoadingAi] = useState(false);
 
   const profile = state.healthProfile;
-  const todayMetrics = state.healthMetrics.find(h => h.date === today);
+  const todayAllMetrics = state.healthMetrics.filter(h => h.date === today);
+  const todayMetrics = todayAllMetrics.length > 0 ? todayAllMetrics[todayAllMetrics.length - 1] : undefined;
   const todayFood = state.foodEntries.filter(f => f.createdAt.startsWith(today));
-  const todaySleep = state.sleepEntries.find(s => s.date === today);
+  const todaySleepEntries = state.sleepEntries.filter(s => s.date === today);
   const todayActivity = state.activities.filter(a => a.date === today);
   const todayExercise = state.dailyLogs.filter(l => l.tag === 'exercise' && l.createdAt.startsWith(today));
 
@@ -59,7 +60,10 @@ export default function HealthTab() {
   }), [todayFood]);
 
   const steps = todayActivity.reduce((s, a) => s + a.steps, 0);
-  const sleepHours = todaySleep?.hours || 0;
+  // SUM all sleep entries for today (night sleep + naps)
+  const sleepHours = Math.round(todaySleepEntries.reduce((s, e) => s + e.hours, 0) * 10) / 10;
+  // SUM all water intake entries
+  const totalWater = todayAllMetrics.reduce((s, h) => s + (h.waterIntake || 0), 0);
 
   // BMI calculation
   const bmi = useMemo(() => {
@@ -137,7 +141,7 @@ Today's Data:
 - Steps: ${steps > 0 ? steps : 'not logged'}
 - Exercise: ${todayExercise.map(e => e.text).join('; ') || 'none logged'}
 - Mood: ${todayMetrics?.mood || 'not checked in'}
-- Water: ${todayMetrics?.waterIntake || 0} glasses
+- Water: ${totalWater} glasses
 - Symptoms: ${todayMetrics?.symptoms || 'none'}
 
 Give 4-5 specific, actionable insights. Include:
@@ -314,7 +318,7 @@ Return ONLY a JSON array of strings. Be encouraging but specific. Use numbers.`;
           <ProgressBar value={nutrition.calories} target={profile.dailyCalorieTarget || 2000} color="#f59e0b" label={`🔥 Calories`} />
           <ProgressBar value={nutrition.protein} target={profile.dailyProteinTarget || 60} color="#ef4444" label={`💪 Protein (g)`} />
           <ProgressBar value={steps} target={profile.dailyStepsTarget || 10000} color="#10b981" label={`🚶 Steps`} />
-          <ProgressBar value={todayMetrics?.waterIntake || 0} target={profile.dailyWaterTarget || 8} color="#3b82f6" label={`💧 Water (glasses)`} />
+          <ProgressBar value={totalWater} target={profile.dailyWaterTarget || 8} color="#3b82f6" label={`💧 Water (glasses)`} />
           <ProgressBar value={sleepHours} target={profile.dailySleepTarget || 7} color="#8b5cf6" label={`😴 Sleep (hours)`} />
         </div>
       )}

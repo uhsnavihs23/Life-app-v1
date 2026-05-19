@@ -225,9 +225,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           healthMetrics: mergeById(state.healthMetrics, cloud.healthMetrics),
           activityTimeline: mergeById(state.activityTimeline, cloud.activityTimeline),
         };
-        // Health profile: cloud wins (it's a single object, not an array)
+        // Health profile: cloud wins
         if (cloud.healthProfile) merged.healthProfile = cloud.healthProfile;
-        dispatch({ type: 'LOAD_STATE', state: merged });
+        // Habit entries: merge by id
+        if (cloud.habitEntries.length > 0) merged.habitEntries = mergeById(state.habitEntries, cloud.habitEntries);
+        // User profile from cloud: update display name
+        if (cloud.userProfile && state.user) {
+          merged.user = { ...state.user, displayName: cloud.userProfile.displayName || state.user.displayName, email: cloud.userProfile.email || state.user.email, avatarUrl: cloud.userProfile.avatarUrl };
+        }
+        // Chat sessions: save to localStorage for SearchTab
+        if (cloud.chatSessions) {
+          localStorage.setItem('lifelog_chat_sessions', JSON.stringify(cloud.chatSessions));
+        }
+        dispatch({ type: 'LOAD_STATE', state: merged as Partial<AppState> });
       } catch (e) {
         console.error('Cloud load error:', e);
         // On error, keep local data as-is — don't lose anything
@@ -329,9 +339,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const toggleHabit = useCallback((habitId: string, date: string) => {
-    const entry: HabitEntry = { id: `${habitId}_${date}`, userId: uid(), habitId, date, completed: true, createdAt: new Date().toISOString() };
+    const existing = state.habitEntries.find(h => h.habitId === habitId && h.date === date);
+    const entry: HabitEntry = {
+      id: `${habitId}_${date}`,
+      userId: uid(),
+      habitId,
+      date,
+      completed: existing ? !existing.completed : true,
+      createdAt: new Date().toISOString(),
+    };
     dispatch({ type: 'TOGGLE_HABIT', entry });
-  }, [uid]);
+    if (isSupabaseConfigured()) bgSync(dispatch, () => SupabaseDB.saveHabitEntry(entry));
+  }, [uid, state.habitEntries]);
 
   const contextValue = useMemo<AppContextValue>(() => ({
     state, dispatch,

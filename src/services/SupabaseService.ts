@@ -11,7 +11,7 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import type {
   DailyLogEntry, ExpenseEntry, FoodEntry, SleepEntry,
   ActivityEntry, Reminder, ListItem, HealthMetrics, ActivityTimeline,
-  HealthProfile,
+  HealthProfile, HabitEntry,
 } from '../models/types';
 
 // Get from environment variables (set in Vercel)
@@ -590,6 +590,78 @@ export const SupabaseDB = {
     };
   },
 
+  // ---- User Profile (display name, etc.) ----
+  async saveUserProfile(userId: string, displayName: string, email: string, avatarUrl?: string) {
+    const client = getSupabaseClient();
+    if (!client) return;
+    const { error } = await client.from('profiles').upsert({
+      id: userId,
+      display_name: displayName,
+      email: email,
+      avatar_url: avatarUrl,
+      updated_at: new Date().toISOString(),
+    });
+    if (error) console.error('Error saving profile:', error);
+  },
+
+  async getUserProfile(userId: string): Promise<{ displayName: string; email: string; avatarUrl?: string } | null> {
+    const client = getSupabaseClient();
+    if (!client) return null;
+    const { data, error } = await client.from('profiles').select('*').eq('id', userId).maybeSingle();
+    if (error || !data) return null;
+    return { displayName: data.display_name || '', email: data.email || '', avatarUrl: data.avatar_url };
+  },
+
+  // ---- Habit Entries ----
+  async saveHabitEntry(entry: HabitEntry) {
+    const client = getSupabaseClient();
+    if (!client) return;
+    const { error } = await client.from('habit_entries').upsert({
+      id: entry.id,
+      user_id: entry.userId,
+      habit_id: entry.habitId,
+      date: entry.date,
+      completed: entry.completed,
+      created_at: entry.createdAt,
+    });
+    if (error) console.error('Error saving habit:', error);
+  },
+
+  async getHabitEntries(userId: string): Promise<HabitEntry[]> {
+    const client = getSupabaseClient();
+    if (!client) return [];
+    const { data, error } = await client.from('habit_entries').select('*').eq('user_id', userId).order('date', { ascending: false }).limit(200);
+    if (error) { console.error('Error fetching habits:', error); return []; }
+    return (data || []).map(row => ({
+      id: row.id,
+      userId: row.user_id,
+      habitId: row.habit_id,
+      date: row.date,
+      completed: row.completed,
+      createdAt: row.created_at,
+    }));
+  },
+
+  // ---- Chat Sessions ----
+  async saveChatSessions(userId: string, sessions: any[]) {
+    const client = getSupabaseClient();
+    if (!client) return;
+    const { error } = await client.from('chat_sessions').upsert({
+      user_id: userId,
+      sessions: JSON.stringify(sessions.slice(-30)),
+      updated_at: new Date().toISOString(),
+    });
+    if (error) console.error('Error saving chat sessions:', error);
+  },
+
+  async getChatSessions(userId: string): Promise<any[] | null> {
+    const client = getSupabaseClient();
+    if (!client) return null;
+    const { data, error } = await client.from('chat_sessions').select('sessions').eq('user_id', userId).maybeSingle();
+    if (error || !data) return null;
+    try { return JSON.parse(data.sessions); } catch { return null; }
+  },
+
   // ---- Load ALL data for a user ----
   async loadAllData(userId: string) {
     const [
@@ -603,6 +675,9 @@ export const SupabaseDB = {
       healthMetrics,
       activityTimeline,
       healthProfile,
+      habitEntries,
+      userProfile,
+      chatSessions,
     ] = await Promise.all([
       this.getDailyLogs(userId),
       this.getExpenses(userId),
@@ -614,6 +689,9 @@ export const SupabaseDB = {
       this.getHealthMetrics(userId),
       this.getTimeline(userId),
       this.getHealthProfile(userId),
+      this.getHabitEntries(userId),
+      this.getUserProfile(userId),
+      this.getChatSessions(userId),
     ]);
 
     return {
@@ -627,6 +705,9 @@ export const SupabaseDB = {
       healthMetrics,
       activityTimeline,
       healthProfile,
+      habitEntries,
+      userProfile,
+      chatSessions,
     };
   },
 };
