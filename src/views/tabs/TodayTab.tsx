@@ -8,7 +8,7 @@
 
 import { useState, useRef, useCallback } from 'react';
 import { useApp } from '../../store/AppContext';
-import { TAG_CONFIG, formatINR, formatTime, type EntryTag } from '../../models/types';
+import { TAG_CONFIG, formatINR, formatTime, getLocalToday, isOnLocalDate, toLocalDateStr, type EntryTag } from '../../models/types';
 import { GeminiService, hasGeminiApiKey } from '../../services/GeminiService';
 import { format } from 'date-fns';
 import {
@@ -47,10 +47,10 @@ export default function TodayTab() {
   const [listType, setListType] = useState<'movie' | 'music' | 'book'>('movie');
   const [listTitle, setListTitle] = useState('');
 
-  const today = new Date().toISOString().split('T')[0];
-  const todayLogs = state.dailyLogs.filter(l => l.createdAt.startsWith(today));
-  const todayExpenses = state.expenses.filter(e => e.createdAt.startsWith(today));
-  const todayFood = state.foodEntries.filter(f => f.createdAt.startsWith(today));
+  const today = getLocalToday();
+  const todayLogs = state.dailyLogs.filter(l => isOnLocalDate(l.createdAt, today));
+  const todayExpenses = state.expenses.filter(e => isOnLocalDate(e.createdAt, today));
+  const todayFood = state.foodEntries.filter(f => isOnLocalDate(f.createdAt, today));
   const todaySleep = state.sleepEntries.filter(s => s.date === today);
   const todayActivity = state.activities.filter(a => a.date === today);
 
@@ -216,11 +216,11 @@ export default function TodayTab() {
     if (actionType) dispatch({ type: actionType, id: item.id } as any);
   }, [dispatch]);
 
-  // Today's reminders
+  // Only show reminders that are specifically for TODAY (not all past ones)
   const todayReminders = state.reminders.filter(r => {
     if (r.isCompleted) return false;
-    const rDate = r.dateTime.split('T')[0];
-    return rDate === today || new Date(r.dateTime) <= new Date();
+    const rDate = toLocalDateStr(r.dateTime);
+    return rDate === today;
   });
 
   return (

@@ -10,7 +10,7 @@
 
 import { useMemo, useState, useCallback } from 'react';
 import { useApp } from '../../store/AppContext';
-import { formatINR } from '../../models/types';
+import { formatINR, getLocalToday, isOnLocalDate } from '../../models/types';
 import { GeminiService, hasGeminiApiKey } from '../../services/GeminiService';
 import { format, subDays, startOfWeek, isAfter } from 'date-fns';
 import {
@@ -21,7 +21,7 @@ import { TrendingUp, IndianRupee, Utensils, Moon, Footprints, Brain, Heart, Drop
 
 export default function DashboardTab() {
   const { state } = useApp();
-  const today = new Date().toISOString().split('T')[0];
+  const today = getLocalToday();
   const weekStart = startOfWeek(new Date());
   
   const [aiInsights, setAiInsights] = useState<string[]>([]);
@@ -29,9 +29,9 @@ export default function DashboardTab() {
 
   // Calculate stats — SUM all entries per day, never just take first
   const stats = useMemo(() => {
-    const expToday = state.expenses.filter(e => e.createdAt.startsWith(today));
+    const expToday = state.expenses.filter(e => isOnLocalDate(e.createdAt, today));
     const expWeek = state.expenses.filter(e => isAfter(new Date(e.createdAt), weekStart));
-    const foodToday = state.foodEntries.filter(f => f.createdAt.startsWith(today));
+    const foodToday = state.foodEntries.filter(f => isOnLocalDate(f.createdAt, today));
     const sleepToday = state.sleepEntries.filter(s => s.date === today);
     const actToday = state.activities.filter(a => a.date === today);
     const healthToday = state.healthMetrics.filter(h => h.date === today);
@@ -66,12 +66,12 @@ export default function DashboardTab() {
 
   // Build exercise and food summaries for AI context
   const exerciseSummary = useMemo(() => {
-    const exerciseLogs = state.dailyLogs.filter(l => l.tag === 'exercise' && l.createdAt.startsWith(today));
+    const exerciseLogs = state.dailyLogs.filter(l => l.tag === 'exercise' && isOnLocalDate(l.createdAt, today));
     return exerciseLogs.map(l => l.text).join('; ') || '';
   }, [state.dailyLogs, today]);
 
   const foodSummary = useMemo(() => {
-    return state.foodEntries.filter(f => f.createdAt.startsWith(today))
+    return state.foodEntries.filter(f => isOnLocalDate(f.createdAt, today))
       .map(f => `${f.name} (${f.portionSize})${f.calories ? ' ' + f.calories + 'cal' : ''}`).join(', ') || '';
   }, [state.foodEntries, today]);
 

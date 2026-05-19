@@ -17,6 +17,7 @@ import type {
   ChatMessage, EntryTag, ListItem, HealthMetrics, ActivityTimeline,
   HealthProfile, HabitEntry,
 } from '../models/types';
+import { getLocalToday } from '../models/types';
 import { StorageService } from '../services/StorageService';
 import { SupabaseDB, isSupabaseConfigured } from '../services/SupabaseService';
 
@@ -252,7 +253,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // ─── Action creators ─────
   const uid = useCallback(() => userIdRef.current, []);
 
-  const todayStr = () => new Date().toISOString().split('T')[0];
+  const todayStr = () => getLocalToday();
   const nowStr = () => new Date().toISOString();
   const dateToCreatedAt = (d?: string) => d ? new Date(d + 'T12:00:00').toISOString() : nowStr();
 

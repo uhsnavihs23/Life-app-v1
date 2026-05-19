@@ -13,7 +13,7 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useApp } from '../../store/AppContext';
 import { GeminiService, hasGeminiApiKey } from '../../services/GeminiService';
-import { DEFAULT_HABITS } from '../../models/types';
+import { DEFAULT_HABITS, getLocalToday, isOnLocalDate } from '../../models/types';
 import type { HealthProfile } from '../../models/types';
 import { format, subDays } from 'date-fns';
 import {
@@ -24,7 +24,7 @@ import {
 
 export default function HealthTab() {
   const { state, addHealthMetrics, setHealthProfile } = useApp();
-  const today = new Date().toISOString().split('T')[0];
+  const today = getLocalToday();
 
   // Profile editing
   const [editingProfile, setEditingProfile] = useState(false);
@@ -45,10 +45,10 @@ export default function HealthTab() {
   const profile = state.healthProfile;
   const todayAllMetrics = state.healthMetrics.filter(h => h.date === today);
   const todayMetrics = todayAllMetrics.length > 0 ? todayAllMetrics[todayAllMetrics.length - 1] : undefined;
-  const todayFood = state.foodEntries.filter(f => f.createdAt.startsWith(today));
+  const todayFood = state.foodEntries.filter(f => isOnLocalDate(f.createdAt, today));
   const todaySleepEntries = state.sleepEntries.filter(s => s.date === today);
   const todayActivity = state.activities.filter(a => a.date === today);
-  const todayExercise = state.dailyLogs.filter(l => l.tag === 'exercise' && l.createdAt.startsWith(today));
+  const todayExercise = state.dailyLogs.filter(l => l.tag === 'exercise' && isOnLocalDate(l.createdAt, today));
 
   // Calculate nutrition totals
   const nutrition = useMemo(() => ({

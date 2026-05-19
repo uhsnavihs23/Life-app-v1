@@ -261,6 +261,23 @@ export const TAG_CONFIG: Record<EntryTag, { label: string; color: string; bg: st
   health: { label: 'Health', color: '#f43f5e', bg: 'rgba(244,63,94,0.1)', emoji: '❤️' },
 };
 
+/** Get today's date in local timezone as YYYY-MM-DD */
+export function getLocalToday(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+}
+
+/** Get local date string from a Date or ISO string */
+export function toLocalDateStr(d: Date | string): string {
+  const date = typeof d === 'string' ? new Date(d) : d;
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+/** Check if an ISO timestamp falls on a given local date */
+export function isOnLocalDate(isoTimestamp: string, localDate: string): boolean {
+  return toLocalDateStr(isoTimestamp) === localDate;
+}
+
 /** Format currency in INR */
 export function formatINR(amount: number): string {
   return new Intl.NumberFormat('en-IN', {
