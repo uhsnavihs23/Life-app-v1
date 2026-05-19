@@ -95,21 +95,23 @@ export default function TodayTab() {
       let addedStructured = false;
 
       for (const entry of result.entries) {
+        const d = entry.date; // YYYY-MM-DD or undefined (today)
+        const dateLabel = d ? ` [${d}]` : '';
+
         switch (entry.type) {
           case 'sleep':
             if (entry.sleepHours && entry.sleepHours > 0) {
-              addSleep(entry.sleepHours, (entry.sleepQuality as any) || 'good', entry.bedTime, entry.wakeTime);
-              notes.push(`😴 ${entry.sleepHours}h sleep${entry.bedTime ? ' (' + entry.bedTime + '→' + entry.wakeTime + ')' : ''}`);
+              addSleep(entry.sleepHours, (entry.sleepQuality as any) || 'good', entry.bedTime, entry.wakeTime, d);
+              notes.push(`😴 ${entry.sleepHours}h sleep${entry.bedTime ? ' (' + entry.bedTime + '→' + entry.wakeTime + ')' : ''}${dateLabel}`);
               addedStructured = true;
             }
             break;
 
           case 'activity':
             if ((entry.steps && entry.steps > 0) || (entry.distanceKm && entry.distanceKm > 0)) {
-              // If only distance given, estimate steps (1km ≈ 1300 steps)
               const steps = entry.steps && entry.steps > 0 ? entry.steps : Math.round((entry.distanceKm || 0) * 1300);
-              addActivity(steps, entry.distanceKm);
-              notes.push(`🚶 ${steps.toLocaleString()} steps${entry.distanceKm ? ' · ' + entry.distanceKm + ' km' : ''}`);
+              addActivity(steps, entry.distanceKm, undefined, undefined, d);
+              notes.push(`🚶 ${steps.toLocaleString()} steps${entry.distanceKm ? ' · ' + entry.distanceKm + ' km' : ''}${dateLabel}`);
               addedStructured = true;
             }
             break;
@@ -117,16 +119,16 @@ export default function TodayTab() {
           case 'exercise':
             if (entry.exercises && entry.exercises.length > 0) {
               const detail = entry.exercises.map(ex => `${ex.name} ${ex.sets ? ex.sets + 'x' : ''}${ex.reps || ''}`).join(', ');
-              addLog(`🏋️ ${detail}${entry.durationMinutes ? ' · ' + entry.durationMinutes + ' min' : ''}${entry.caloriesBurned ? ' · ~' + entry.caloriesBurned + ' cal' : ''}`, 'exercise');
-              notes.push(`💪 ${entry.exercises.length} exercises${entry.caloriesBurned ? ', ~' + entry.caloriesBurned + ' cal' : ''}`);
+              addLog(`🏋️ ${detail}${entry.durationMinutes ? ' · ' + entry.durationMinutes + ' min' : ''}${entry.caloriesBurned ? ' · ~' + entry.caloriesBurned + ' cal' : ''}`, 'exercise', d);
+              notes.push(`💪 ${entry.exercises.length} exercises${entry.caloriesBurned ? ', ~' + entry.caloriesBurned + ' cal' : ''}${dateLabel}`);
               addedStructured = true;
             }
             break;
 
           case 'expense':
             if (entry.amount && entry.amount > 0) {
-              addExpense(entry.amount, entry.expenseCategory || 'Other', text);
-              notes.push(`💰 ₹${entry.amount} - ${entry.expenseCategory || 'Other'}${entry.date ? ' (for ' + entry.date + ')' : ''}`);
+              addExpense(entry.amount, entry.expenseCategory || 'Other', text, d);
+              notes.push(`💰 ₹${entry.amount} - ${entry.expenseCategory || 'Other'}${dateLabel}`);
               addedStructured = true;
             }
             break;
@@ -139,8 +141,8 @@ export default function TodayTab() {
               const totalCarbs = entry.foodItems.reduce((s, i) => s + (i.carbs || 0), 0);
               const totalFat = entry.foodItems.reduce((s, i) => s + (i.fat || 0), 0);
               const portions = entry.foodItems.map(i => `${i.name}: ${i.portion}`).join(', ');
-              addFood(mealName, portions, totalCal > 0 ? totalCal : undefined, (entry.mealType as any) || 'snack', totalProtein || undefined, totalCarbs || undefined, totalFat || undefined);
-              notes.push(`🍽️ ${entry.mealType || 'meal'}: ~${totalCal} cal`);
+              addFood(mealName, portions, totalCal > 0 ? totalCal : undefined, (entry.mealType as any) || 'snack', totalProtein || undefined, totalCarbs || undefined, totalFat || undefined, d);
+              notes.push(`🍽️ ${entry.mealType || 'meal'}: ~${totalCal} cal${dateLabel}`);
               if (entry.nutritionSummary) notes.push(`📊 ${entry.nutritionSummary}`);
               addedStructured = true;
             }
@@ -214,15 +216,38 @@ export default function TodayTab() {
     if (actionType) dispatch({ type: actionType, id: item.id } as any);
   }, [dispatch]);
 
+  // Today's reminders
+  const todayReminders = state.reminders.filter(r => {
+    if (r.isCompleted) return false;
+    const rDate = r.dateTime.split('T')[0];
+    return rDate === today || new Date(r.dateTime) <= new Date();
+  });
+
   return (
     <div className="pb-4 fade-in safe-area-top">
-      <div className="mb-6">
+      <div className="mb-4">
         <h1 className="text-3xl font-bold" style={{ color: 'var(--color-text)' }}>Today</h1>
         <p className="text-sm mt-1" style={{ color: 'var(--color-text-secondary)' }}>
           {format(new Date(), 'EEEE, d MMMM yyyy')}
           {isClassifying && <span className="ml-2 text-indigo-500">✨ Classifying...</span>}
         </p>
       </div>
+
+      {/* Reminder Banner */}
+      {todayReminders.length > 0 && (
+        <div className="mb-4 space-y-2">
+          {todayReminders.slice(0, 3).map(r => (
+            <div key={r.id} className="card p-3 flex items-center gap-3" style={{ background: 'rgba(245,158,11,0.08)', borderColor: '#f59e0b' }}>
+              <span className="text-xl">⏰</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold" style={{ color: 'var(--color-text)' }}>{r.title}</p>
+                {r.description && <p className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>{r.description}</p>}
+              </div>
+              <span className="text-xs flex-shrink-0" style={{ color: '#f59e0b' }}>{format(new Date(r.dateTime), 'h:mm a')}</span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {classifyResult && (
         <div className="card p-3 mb-4 text-sm text-indigo-600 dark:text-indigo-400" style={{ background: 'rgba(99,102,241,0.08)' }}>

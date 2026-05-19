@@ -374,6 +374,164 @@ export default function DashboardTab() {
           </div>
         )}
       </div>
+
+      {/* Week vs Week Comparison */}
+      <WeekComparison state={state} />
+
+      {/* Smart Spending Patterns */}
+      <SmartCategories expenses={state.expenses} />
+    </div>
+  );
+}
+
+/** This Week vs Last Week comparison */
+function WeekComparison({ state }: { state: any }) {
+  const getWeekData = (offsetDays: number) => {
+    const start = new Date();
+    start.setDate(start.getDate() - offsetDays - 6);
+    const end = new Date();
+    end.setDate(end.getDate() - offsetDays);
+
+    const inRange = (d: string) => {
+      const dt = new Date(d);
+      return dt >= start && dt <= end;
+    };
+
+    const expenses = state.expenses.filter((e: any) => inRange(e.createdAt)).reduce((s: number, e: any) => s + e.amount, 0);
+    const meals = state.foodEntries.filter((f: any) => inRange(f.createdAt)).length;
+    const calories = state.foodEntries.filter((f: any) => inRange(f.createdAt)).reduce((s: number, f: any) => s + (f.calories || 0), 0);
+    
+    let totalSleep = 0, sleepDays = 0;
+    for (let i = 0; i < 7; i++) {
+      const d = format(subDays(new Date(), offsetDays + i), 'yyyy-MM-dd');
+      const s = state.sleepEntries.find((e: any) => e.date === d);
+      if (s) { totalSleep += s.hours; sleepDays++; }
+    }
+
+    const steps = state.activities.filter((a: any) => inRange(a.createdAt)).reduce((s: number, a: any) => s + a.steps, 0);
+
+    return {
+      expenses, meals, calories,
+      avgSleep: sleepDays > 0 ? Math.round(totalSleep / sleepDays * 10) / 10 : 0,
+      steps,
+    };
+  };
+
+  const thisWeek = getWeekData(0);
+  const lastWeek = getWeekData(7);
+
+  const compareArrow = (current: number, previous: number, lowerIsBetter = false) => {
+    if (previous === 0) return '';
+    const pct = Math.round(((current - previous) / previous) * 100);
+    if (pct === 0) return '→ same';
+    const good = lowerIsBetter ? pct < 0 : pct > 0;
+    return `${good ? '↑' : '↓'} ${Math.abs(pct)}%`;
+  };
+
+  const rows = [
+    { label: '💰 Spent', thisW: `₹${thisWeek.expenses.toLocaleString('en-IN')}`, lastW: `₹${lastWeek.expenses.toLocaleString('en-IN')}`, change: compareArrow(thisWeek.expenses, lastWeek.expenses, true) },
+    { label: '😴 Avg Sleep', thisW: `${thisWeek.avgSleep}h`, lastW: `${lastWeek.avgSleep}h`, change: compareArrow(thisWeek.avgSleep, lastWeek.avgSleep) },
+    { label: '🚶 Steps', thisW: thisWeek.steps.toLocaleString(), lastW: lastWeek.steps.toLocaleString(), change: compareArrow(thisWeek.steps, lastWeek.steps) },
+    { label: '🍽️ Meals', thisW: thisWeek.meals.toString(), lastW: lastWeek.meals.toString(), change: compareArrow(thisWeek.meals, lastWeek.meals) },
+    { label: '🔥 Calories', thisW: thisWeek.calories.toLocaleString(), lastW: lastWeek.calories.toLocaleString(), change: '' },
+  ];
+
+  return (
+    <div className="card p-4 mb-4">
+      <h3 className="font-semibold mb-3 flex items-center gap-2" style={{ color: 'var(--color-text)' }}>
+        📊 This Week vs Last Week
+      </h3>
+      <div className="space-y-1">
+        <div className="grid grid-cols-4 gap-2 pb-2 mb-1" style={{ borderBottom: '1px solid var(--color-border)' }}>
+          <span className="text-xs font-medium" style={{ color: 'var(--color-text-tertiary)' }}></span>
+          <span className="text-xs font-medium text-center" style={{ color: 'var(--color-text-secondary)' }}>This week</span>
+          <span className="text-xs font-medium text-center" style={{ color: 'var(--color-text-tertiary)' }}>Last week</span>
+          <span className="text-xs font-medium text-center" style={{ color: 'var(--color-text-tertiary)' }}>Change</span>
+        </div>
+        {rows.map(row => (
+          <div key={row.label} className="grid grid-cols-4 gap-2 py-1.5">
+            <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>{row.label}</span>
+            <span className="text-xs font-semibold text-center" style={{ color: 'var(--color-text)' }}>{row.thisW}</span>
+            <span className="text-xs text-center" style={{ color: 'var(--color-text-tertiary)' }}>{row.lastW}</span>
+            <span className={`text-xs font-medium text-center ${row.change.includes('↑') ? 'text-green-500' : row.change.includes('↓') ? 'text-red-500' : ''}`}>{row.change}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Smart spending patterns — learns from your expense history */
+function SmartCategories({ expenses }: { expenses: any[] }) {
+  const patterns = useMemo(() => {
+    if (expenses.length < 3) return null;
+
+    // Group by category
+    const catMap: Record<string, { total: number; count: number; avgAmount: number; lastUsed: string }> = {};
+    expenses.forEach(e => {
+      if (!catMap[e.category]) catMap[e.category] = { total: 0, count: 0, avgAmount: 0, lastUsed: '' };
+      catMap[e.category].total += e.amount;
+      catMap[e.category].count += 1;
+      if (!catMap[e.category].lastUsed || e.createdAt > catMap[e.category].lastUsed) {
+        catMap[e.category].lastUsed = e.createdAt;
+      }
+    });
+
+    Object.keys(catMap).forEach(k => {
+      catMap[k].avgAmount = Math.round(catMap[k].total / catMap[k].count);
+    });
+
+    // Sort by frequency
+    const sorted = Object.entries(catMap)
+      .sort((a, b) => b[1].count - a[1].count)
+      .slice(0, 5);
+
+    // Monthly estimate
+    const oldestDate = new Date(expenses[expenses.length - 1]?.createdAt || new Date());
+    const daysDiff = Math.max(1, Math.round((Date.now() - oldestDate.getTime()) / 86400000));
+    const dailyAvg = expenses.reduce((s, e) => s + e.amount, 0) / daysDiff;
+    const monthlyEstimate = Math.round(dailyAvg * 30);
+
+    return { topCategories: sorted, monthlyEstimate, dailyAvg: Math.round(dailyAvg) };
+  }, [expenses]);
+
+  if (!patterns) return null;
+
+  return (
+    <div className="card p-4 mb-4">
+      <h3 className="font-semibold mb-3 flex items-center gap-2" style={{ color: 'var(--color-text)' }}>
+        🧠 Spending Patterns
+      </h3>
+      
+      <div className="grid grid-cols-2 gap-2 mb-3">
+        <div className="p-3 rounded-xl text-center" style={{ background: 'rgba(239,68,68,0.06)' }}>
+          <p className="text-lg font-bold text-red-500">₹{patterns.dailyAvg.toLocaleString('en-IN')}</p>
+          <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>daily avg</p>
+        </div>
+        <div className="p-3 rounded-xl text-center" style={{ background: 'rgba(245,158,11,0.06)' }}>
+          <p className="text-lg font-bold text-amber-500">₹{patterns.monthlyEstimate.toLocaleString('en-IN')}</p>
+          <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>est. monthly</p>
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        {patterns.topCategories.map(([cat, data]) => (
+          <div key={cat} className="flex items-center gap-2">
+            <div className="flex-1">
+              <div className="flex justify-between mb-1">
+                <span className="text-xs font-medium" style={{ color: 'var(--color-text-secondary)' }}>{cat}</span>
+                <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>{data.count}x · avg ₹{data.avgAmount.toLocaleString('en-IN')}</span>
+              </div>
+              <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--color-surface-alt)' }}>
+                <div className="h-full rounded-full" style={{
+                  width: `${Math.min(100, (data.total / patterns.topCategories[0][1].total) * 100)}%`,
+                  background: 'var(--color-primary)',
+                }} />
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

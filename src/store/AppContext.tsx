@@ -15,7 +15,7 @@ import type {
   User, DailyLogEntry, ExpenseEntry, FoodEntry,
   SleepEntry, ActivityEntry, FileAttachment, Reminder,
   ChatMessage, EntryTag, ListItem, HealthMetrics, ActivityTimeline,
-  HealthProfile,
+  HealthProfile, HabitEntry,
 } from '../models/types';
 import { StorageService } from '../services/StorageService';
 import { SupabaseDB, isSupabaseConfigured } from '../services/SupabaseService';
@@ -36,6 +36,7 @@ interface AppState {
   listItems: ListItem[];
   healthMetrics: HealthMetrics[];
   healthProfile: HealthProfile | null;
+  habitEntries: HabitEntry[];
   activityTimeline: ActivityTimeline[];
   syncErrors: string[];
 }
@@ -70,13 +71,14 @@ type Action =
   | { type: 'DELETE_FOOD'; id: string }
   | { type: 'DELETE_SLEEP'; id: string }
   | { type: 'DELETE_ACTIVITY'; id: string }
-  | { type: 'SET_HEALTH_PROFILE'; profile: HealthProfile };
+  | { type: 'SET_HEALTH_PROFILE'; profile: HealthProfile }
+  | { type: 'TOGGLE_HABIT'; entry: HabitEntry };
 
 const initialState: AppState = {
   user: null, isLoggedIn: false, darkMode: false, isLoading: false,
   dailyLogs: [], expenses: [], foodEntries: [], sleepEntries: [],
   activities: [], files: [], reminders: [], chatMessages: [],
-  listItems: [], healthMetrics: [], healthProfile: null, activityTimeline: [], syncErrors: [],
+  listItems: [], healthMetrics: [], healthProfile: null, habitEntries: [], activityTimeline: [], syncErrors: [],
 };
 
 function reducer(state: AppState, action: Action): AppState {
@@ -113,6 +115,15 @@ function reducer(state: AppState, action: Action): AppState {
     case 'DELETE_SLEEP': return { ...state, sleepEntries: state.sleepEntries.filter(s => s.id !== action.id) };
     case 'DELETE_ACTIVITY': return { ...state, activities: state.activities.filter(a => a.id !== action.id) };
     case 'SET_HEALTH_PROFILE': return { ...state, healthProfile: action.profile };
+    case 'TOGGLE_HABIT': {
+      const existing = state.habitEntries.findIndex(h => h.habitId === action.entry.habitId && h.date === action.entry.date);
+      if (existing >= 0) {
+        const updated = [...state.habitEntries];
+        updated[existing] = { ...updated[existing], completed: !updated[existing].completed };
+        return { ...state, habitEntries: updated };
+      }
+      return { ...state, habitEntries: [action.entry, ...state.habitEntries] };
+    }
     default: return state;
   }
 }
@@ -120,11 +131,11 @@ function reducer(state: AppState, action: Action): AppState {
 interface AppContextValue {
   state: AppState;
   dispatch: React.Dispatch<Action>;
-  addLog: (text: string, tag: EntryTag) => void;
-  addExpense: (amount: number, category: string, note: string) => void;
-  addFood: (name: string, portionSize: string, calories: number | undefined, mealType: FoodEntry['mealType'], protein?: number, carbs?: number, fat?: number) => void;
-  addSleep: (hours: number, quality: SleepEntry['quality'], bedTime?: string, wakeTime?: string) => void;
-  addActivity: (steps: number, distanceKm?: number, activeMinutes?: number, caloriesBurned?: number) => void;
+  addLog: (text: string, tag: EntryTag, date?: string) => void;
+  addExpense: (amount: number, category: string, note: string, date?: string) => void;
+  addFood: (name: string, portionSize: string, calories: number | undefined, mealType: FoodEntry['mealType'], protein?: number, carbs?: number, fat?: number, date?: string) => void;
+  addSleep: (hours: number, quality: SleepEntry['quality'], bedTime?: string, wakeTime?: string, date?: string) => void;
+  addActivity: (steps: number, distanceKm?: number, activeMinutes?: number, caloriesBurned?: number, date?: string) => void;
   addFile: (fileName: string, fileType: 'pdf' | 'image', localUrl: string) => void;
   addReminder: (title: string, description: string, dateTime: string, isRecurring: boolean, recurrenceInterval?: Reminder['recurrenceInterval']) => void;
   addChatMessage: (role: ChatMessage['role'], content: string) => void;
@@ -135,6 +146,7 @@ interface AppContextValue {
   toggleReminder: (id: string) => void;
   deleteReminder: (id: string) => void;
   setHealthProfile: (profile: HealthProfile) => void;
+  toggleHabit: (habitId: string, date: string) => void;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -230,32 +242,36 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // ─── Action creators ─────
   const uid = useCallback(() => userIdRef.current, []);
 
-  const addLog = useCallback((text: string, tag: EntryTag) => {
-    const entry: DailyLogEntry = { id: uuid(), userId: uid(), text, tag, createdAt: new Date().toISOString() };
+  const todayStr = () => new Date().toISOString().split('T')[0];
+  const nowStr = () => new Date().toISOString();
+  const dateToCreatedAt = (d?: string) => d ? new Date(d + 'T12:00:00').toISOString() : nowStr();
+
+  const addLog = useCallback((text: string, tag: EntryTag, date?: string) => {
+    const entry: DailyLogEntry = { id: uuid(), userId: uid(), text, tag, createdAt: date ? dateToCreatedAt(date) : nowStr() };
     dispatch({ type: 'ADD_LOG', entry });
     if (isSupabaseConfigured()) bgSync(dispatch, () => SupabaseDB.saveDailyLog(entry));
   }, [uid]);
 
-  const addExpense = useCallback((amount: number, category: string, note: string) => {
-    const entry: ExpenseEntry = { id: uuid(), userId: uid(), amount, currency: 'INR', category, note, createdAt: new Date().toISOString() };
+  const addExpense = useCallback((amount: number, category: string, note: string, date?: string) => {
+    const entry: ExpenseEntry = { id: uuid(), userId: uid(), amount, currency: 'INR', category, note, createdAt: date ? dateToCreatedAt(date) : nowStr() };
     dispatch({ type: 'ADD_EXPENSE', entry });
     if (isSupabaseConfigured()) bgSync(dispatch, () => SupabaseDB.saveExpense(entry));
   }, [uid]);
 
-  const addFood = useCallback((name: string, portionSize: string, calories: number | undefined, mealType: FoodEntry['mealType'], protein?: number, carbs?: number, fat?: number) => {
-    const entry: FoodEntry = { id: uuid(), userId: uid(), name, portionSize, calories, protein, carbs, fat, mealType, createdAt: new Date().toISOString() };
+  const addFood = useCallback((name: string, portionSize: string, calories: number | undefined, mealType: FoodEntry['mealType'], protein?: number, carbs?: number, fat?: number, date?: string) => {
+    const entry: FoodEntry = { id: uuid(), userId: uid(), name, portionSize, calories, protein, carbs, fat, mealType, createdAt: date ? dateToCreatedAt(date) : nowStr() };
     dispatch({ type: 'ADD_FOOD', entry });
     if (isSupabaseConfigured()) bgSync(dispatch, () => SupabaseDB.saveFood(entry));
   }, [uid]);
 
-  const addSleep = useCallback((hours: number, quality: SleepEntry['quality'], bedTime?: string, wakeTime?: string) => {
-    const entry: SleepEntry = { id: uuid(), userId: uid(), hours, quality, bedTime, wakeTime, date: new Date().toISOString().split('T')[0], createdAt: new Date().toISOString() };
+  const addSleep = useCallback((hours: number, quality: SleepEntry['quality'], bedTime?: string, wakeTime?: string, date?: string) => {
+    const entry: SleepEntry = { id: uuid(), userId: uid(), hours, quality, bedTime, wakeTime, date: date || todayStr(), createdAt: date ? dateToCreatedAt(date) : nowStr() };
     dispatch({ type: 'ADD_SLEEP', entry });
     if (isSupabaseConfigured()) bgSync(dispatch, () => SupabaseDB.saveSleep(entry));
   }, [uid]);
 
-  const addActivity = useCallback((steps: number, distanceKm?: number, activeMinutes?: number, caloriesBurned?: number) => {
-    const entry: ActivityEntry = { id: uuid(), userId: uid(), steps, distanceKm, activeMinutes, caloriesBurned, date: new Date().toISOString().split('T')[0], source: 'manual', createdAt: new Date().toISOString() };
+  const addActivity = useCallback((steps: number, distanceKm?: number, activeMinutes?: number, caloriesBurned?: number, date?: string) => {
+    const entry: ActivityEntry = { id: uuid(), userId: uid(), steps, distanceKm, activeMinutes, caloriesBurned, date: date || todayStr(), source: 'manual', createdAt: date ? dateToCreatedAt(date) : nowStr() };
     dispatch({ type: 'ADD_ACTIVITY', entry });
     if (isSupabaseConfigured()) bgSync(dispatch, () => SupabaseDB.saveActivity(entry));
   }, [uid]);
@@ -312,14 +328,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (isSupabaseConfigured()) bgSync(dispatch, () => SupabaseDB.saveHealthProfile(profile));
   }, []);
 
+  const toggleHabit = useCallback((habitId: string, date: string) => {
+    const entry: HabitEntry = { id: `${habitId}_${date}`, userId: uid(), habitId, date, completed: true, createdAt: new Date().toISOString() };
+    dispatch({ type: 'TOGGLE_HABIT', entry });
+  }, [uid]);
+
   const contextValue = useMemo<AppContextValue>(() => ({
     state, dispatch,
     addLog, addExpense, addFood, addSleep, addActivity, addFile,
     addReminder, addChatMessage, addListItem, deleteListItem,
-    addHealthMetrics, addTimeline, toggleReminder, deleteReminder, setHealthProfile,
+    addHealthMetrics, addTimeline, toggleReminder, deleteReminder, setHealthProfile, toggleHabit,
   }), [state, addLog, addExpense, addFood, addSleep, addActivity, addFile,
     addReminder, addChatMessage, addListItem, deleteListItem,
-    addHealthMetrics, addTimeline, toggleReminder, deleteReminder, setHealthProfile]);
+    addHealthMetrics, addTimeline, toggleReminder, deleteReminder, setHealthProfile, toggleHabit]);
 
   return <AppContext.Provider value={contextValue}>{children}</AppContext.Provider>;
 }

@@ -162,6 +162,34 @@ export interface HealthProfile {
   updatedAt: string;
 }
 
+/** Habit tracking for streaks */
+export interface HabitEntry {
+  id: string;
+  userId: string;
+  habitId: string;
+  date: string; // YYYY-MM-DD
+  completed: boolean;
+  createdAt: string;
+}
+
+export interface HabitDefinition {
+  id: string;
+  name: string;
+  emoji: string;
+  color: string;
+}
+
+export const DEFAULT_HABITS: HabitDefinition[] = [
+  { id: 'water', name: 'Water 8 glasses', emoji: '💧', color: '#3b82f6' },
+  { id: 'exercise', name: 'Exercise', emoji: '🏋️', color: '#10b981' },
+  { id: 'meditation', name: 'Meditation', emoji: '🧘', color: '#8b5cf6' },
+  { id: 'reading', name: 'Reading', emoji: '📖', color: '#f59e0b' },
+  { id: 'no_junk', name: 'No Junk Food', emoji: '🥗', color: '#22c55e' },
+  { id: 'early_sleep', name: 'Sleep by 11 PM', emoji: '🌙', color: '#6366f1' },
+  { id: 'vitamins', name: 'Vitamins/Supplements', emoji: '💊', color: '#ec4899' },
+  { id: 'walk', name: '10K Steps', emoji: '🚶', color: '#14b8a6' },
+];
+
 /** Activity timeline - tracks EVERYTHING */
 export interface ActivityTimeline {
   id: string;

@@ -13,12 +13,13 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useApp } from '../../store/AppContext';
 import { GeminiService, hasGeminiApiKey } from '../../services/GeminiService';
-// import { formatINR } from '../../models/types';
+import { DEFAULT_HABITS } from '../../models/types';
 import type { HealthProfile } from '../../models/types';
+import { format, subDays } from 'date-fns';
 import {
   Heart, Droplets, Zap, Scale, Ruler,
   Brain, Loader2, Save, AlertCircle, Utensils, Flame, Target,
-  Activity, RefreshCw
+  Activity, RefreshCw, Sparkles, CheckCircle2
 } from 'lucide-react';
 
 export default function HealthTab() {
@@ -443,10 +444,149 @@ Return ONLY a JSON array of strings. Be encouraging but specific. Use numbers.`;
           </div>
         ) : (
           <p className="text-sm text-center py-4" style={{ color: 'var(--color-text-tertiary)' }}>
-            {profile ? 'Tap "Get Advice" for personalized health recommendations' : 'Set up your body profile first, then get AI-powered advice'}
+            {profile ? 'Tap "Get Advice" for personalized recommendations' : 'Set up your body profile first'}
           </p>
         )}
+      </div>
+
+      {/* Habit Streaks */}
+      <HabitStreaks />
+
+      {/* Daily Health Tips */}
+      <HealthTipsSection profile={profile} />
+    </div>
+  );
+}
+
+/** Habit Streaks Component */
+function HabitStreaks() {
+  const { state, toggleHabit } = useApp();
+  const today = new Date().toISOString().split('T')[0];
+
+  const getStreak = (habitId: string): number => {
+    let streak = 0;
+    for (let i = 0; i < 60; i++) {
+      const d = format(subDays(new Date(), i), 'yyyy-MM-dd');
+      const found = state.habitEntries.find(h => h.habitId === habitId && h.date === d && h.completed);
+      if (found) streak++;
+      else if (i > 0) break; // streak broken
+    }
+    return streak;
+  };
+
+  const isCompletedToday = (habitId: string) => {
+    return state.habitEntries.some(h => h.habitId === habitId && h.date === today && h.completed);
+  };
+
+  return (
+    <div className="card p-4 mb-4">
+      <h3 className="font-semibold mb-3 flex items-center gap-2" style={{ color: 'var(--color-text)' }}>
+        <Flame className="w-4 h-4 text-orange-500" /> Daily Habits
+      </h3>
+      <div className="space-y-2">
+        {DEFAULT_HABITS.map(habit => {
+          const done = isCompletedToday(habit.id);
+          const streak = getStreak(habit.id);
+          return (
+            <button key={habit.id} className="w-full flex items-center gap-3 p-3 rounded-xl transition-all active:scale-[0.98]"
+              style={{ background: done ? `${habit.color}12` : 'var(--color-surface-alt)' }}
+              onClick={() => toggleHabit(habit.id, today)}>
+              <div className="w-8 h-8 rounded-full flex items-center justify-center text-lg"
+                style={{ background: done ? habit.color : 'transparent', border: done ? 'none' : `2px solid ${habit.color}40` }}>
+                {done ? <CheckCircle2 className="w-5 h-5 text-white" /> : <span>{habit.emoji}</span>}
+              </div>
+              <span className="flex-1 text-sm font-medium text-left" style={{ color: done ? habit.color : 'var(--color-text)', textDecoration: done ? 'line-through' : 'none', opacity: done ? 0.7 : 1 }}>
+                {habit.name}
+              </span>
+              {streak > 0 && (
+                <span className="text-xs font-bold px-2 py-0.5 rounded-full flex items-center gap-1"
+                  style={{ background: `${habit.color}15`, color: habit.color }}>
+                  🔥 {streak}
+                </span>
+              )}
+            </button>
+          );
+        })}
       </div>
     </div>
   );
 }
+
+/** Health Tips Section */
+function HealthTipsSection({ profile }: { profile: HealthProfile | null }) {
+  const [tips, setTips] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [lastLoaded, setLastLoaded] = useState('');
+
+  const dayOfWeek = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+
+  const loadTips = useCallback(async () => {
+    if (!hasGeminiApiKey()) {
+      setTips(FALLBACK_TIPS[new Date().getDay()] || FALLBACK_TIPS[0]);
+      return;
+    }
+    setLoading(true);
+    try {
+      const prompt = `You are an Ayurvedic and modern wellness advisor. Today is ${dayOfWeek}.
+${profile ? `User: ${profile.age}yo ${profile.gender}, ${profile.weightKg}kg, ${profile.dietPreference}, goal: ${profile.fitnessGoal?.replace('_', ' ')}, conditions: ${profile.medicalConditions || 'none'}` : ''}
+
+Give exactly 5 practical daily health tips for today. Mix traditional Indian wellness (nuskhe) with modern science.
+Include: morning routine, food tip, exercise tip, evening tip, and a bonus wellness hack.
+Be specific with quantities and timing. Use emoji prefix for each.
+
+Return ONLY a JSON array of 5 strings. No markdown.`;
+      const response = await GeminiService.search(prompt);
+      const match = response.match(/\[[\s\S]*\]/);
+      if (match) {
+        setTips(JSON.parse(match[0]));
+        setLastLoaded(new Date().toISOString().split('T')[0]);
+      } else {
+        setTips([response]);
+      }
+    } catch {
+      setTips(FALLBACK_TIPS[new Date().getDay()] || FALLBACK_TIPS[0]);
+    }
+    setLoading(false);
+  }, [profile, dayOfWeek]);
+
+  // Auto-load once per day
+  useEffect(() => {
+    const today = new Date().toISOString().split('T')[0];
+    if (lastLoaded !== today && tips.length === 0) {
+      setTips(FALLBACK_TIPS[new Date().getDay()] || FALLBACK_TIPS[0]);
+    }
+  }, [lastLoaded, tips.length]);
+
+  return (
+    <div className="card p-4 mb-4" style={{ background: 'linear-gradient(135deg, rgba(34,197,94,0.05), rgba(245,158,11,0.05))' }}>
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="font-semibold flex items-center gap-2" style={{ color: 'var(--color-text)' }}>
+          <Sparkles className="w-4 h-4 text-green-500" /> Today's Health Tips
+        </h3>
+        <button className="text-xs font-medium px-3 py-1.5 rounded-lg transition-all active:scale-95"
+          style={{ background: 'rgba(34,197,94,0.1)', color: '#22c55e' }}
+          onClick={loadTips} disabled={loading}>
+          {loading ? <Loader2 className="w-3 h-3 animate-spin inline" /> : <RefreshCw className="w-3 h-3 inline" />}
+          {loading ? ' Loading...' : ' AI Tips'}
+        </button>
+      </div>
+      <div className="space-y-2">
+        {tips.map((tip, i) => (
+          <div key={i} className="p-3 rounded-xl text-sm" style={{ background: 'var(--color-surface-alt)', color: 'var(--color-text-secondary)' }}>
+            {tip}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const FALLBACK_TIPS: Record<number, string[]> = {
+  0: ['🌅 Start with warm lemon + ginger water on empty stomach', '🥗 Include a bowl of sprouts in lunch for protein', '🧘 Do 10 minutes of deep breathing before bed', '💧 Drink a glass of water 30 min before each meal', '🌿 Chew 2-3 tulsi leaves for immunity boost'],
+  1: ['🌅 Soak 5 almonds overnight, eat in the morning for brain health', '🍵 Replace evening chai with green tea this week', '🏃 Take a 15-min walk after lunch to aid digestion', '🥛 Have a glass of turmeric milk before sleep', '🫙 Add 1 tsp chia seeds to your morning water'],
+  2: ['🌅 Practice oil pulling with coconut oil for 5 min', '🥒 Eat cucumber + mint raita with lunch for cooling effect', '💪 Do 3 sets of 10 squats between work breaks', '🍯 Replace sugar with honey in your tea', '😴 Keep phone away 30 min before bed for better sleep'],
+  3: ['🌅 Drink warm water with ajwain seeds for digestion', '🥜 Snack on roasted makhana instead of chips', '🚶 Walk 2000 extra steps today — park farther, take stairs', '🫖 Brew fennel seed water and sip through the day', '🌙 Apply coconut oil on feet soles before bed for deep sleep'],
+  4: ['🌅 Start with 2 tbsp soaked sabja seeds in water', '🥗 Make your lunch plate 50% vegetables today', '🧘 Do 5 min surya namaskar in the morning', '🍋 Squeeze lemon on your dal for vitamin C + iron absorption', '💆 Massage your scalp with oil for 5 min to reduce stress'],
+  5: ['🌅 Have a spoon of gulkand early morning for body cooling', '🍌 Eat a banana 30 min before workout for energy', '🏋️ Do a full-body stretch session for 15 min', '🥛 Drink buttermilk with roasted cumin after lunch', '🌿 Apply aloe vera gel on face for 10 min for skin health'],
+  6: ['🌅 Drink amla juice or eat 1 amla for vitamin C boost', '🍲 Cook one meal with minimal oil today — try steaming', '🚶 Go for a nature walk — sunlight + fresh air = mood boost', '🥗 Eat pumpkin seeds (2 tbsp) for zinc and magnesium', '😴 Practice 4-7-8 breathing: inhale 4s, hold 7s, exhale 8s'],
+};
